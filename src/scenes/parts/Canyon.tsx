@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { RackTower, Tower, UNIT_BOX, sharedTowerMaterial } from "@/core/Tower";
+import { Towers, UNIT_BOX, rackSpecs, sharedTowerMaterial, type TowerSpec } from "@/core/Tower";
 import { Label } from "@/core/Label";
 import { COLORS } from "@/core/materials";
 import { rng, type Vec3 } from "@/lib/math";
@@ -31,6 +31,23 @@ export const BRIDGES = [span(CZ + 5, 5, 1.2), span(CZ, 3, 1.6), span(CZ - 5, 5, 
 export function reversed(c: THREE.Curve<THREE.Vector3>) {
   return { getPoint: (t: number, out: THREE.Vector3) => c.getPoint(1 - t, out) };
 }
+
+const CANYON_TOWERS: TowerSpec[] = [
+  ...rackSpecs(CLIENT, TOWER_H, 5, "cyan"),
+  ...rackSpecs(SERVER, TOWER_H, 5, "magenta"),
+  ...(
+    [
+      [-27, -140, 24, 4],
+      [-25, -163, 12, 5],
+      [-34, -152, 30, 4],
+      [-30, -128, 14, 3],
+      [27, -140, 26, 4],
+      [25, -163, 14, 5],
+      [34, -150, 32, 4],
+      [30, -129, 12, 3],
+    ] as const
+  ).map(([x, z, h, w], i): TowerSpec => ({ position: [x, 0, z], size: [w, h, w], edge: i % 3 === 0 ? "cyan" : "magenta" })),
+];
 
 function Abyss() {
   const mesh = useMemo(() => {
@@ -65,22 +82,7 @@ export function Canyon() {
         <mesh key={s} geometry={UNIT_BOX} material={wallMat} position={[s * (CANYON.x + 0.6), -45.2, (CANYON.zMax + CANYON.zMin) / 2]} scale={[1.2, 90, depth]} />
       ))}
       <Abyss />
-      <RackTower position={CLIENT} height={TOWER_H} width={5} edge="cyan" />
-      <RackTower position={SERVER} height={TOWER_H} width={5} edge="magenta" />
-      {(
-        [
-          [-27, -140, 24, 4],
-          [-25, -163, 12, 5],
-          [-34, -152, 30, 4],
-          [-30, -128, 14, 3],
-          [27, -140, 26, 4],
-          [25, -163, 14, 5],
-          [34, -150, 32, 4],
-          [30, -129, 12, 3],
-        ] as const
-      ).map(([x, z, h, w], i) => (
-        <Tower key={i} position={[x, 0, z]} size={[w, h, w]} edge={i % 3 === 0 ? "cyan" : "magenta"} />
-      ))}
+      <Towers specs={CANYON_TOWERS} />
       <Label text="CLIENT" sub={["192.168.1.24 : 52814"]} size={0.7} position={[CLIENT[0], TOWER_H + 6, CZ]} weight={700} />
       <Label text="SERVER" sub={[`${TARGET_IP} : 443  ·  anycast`]} size={0.7} position={[SERVER[0], TOWER_H + 6, CZ]} weight={700} />
     </group>

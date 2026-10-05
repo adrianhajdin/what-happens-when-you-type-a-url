@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Line } from "@react-three/drei";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import * as THREE from "three";
 import { BrowserBar, BAR_POS, BAR_W, type BrowserHandle } from "./parts/BrowserWindow";
 import { Packet, type PacketHandle } from "@/core/Packet";
@@ -91,53 +94,89 @@ function connector(a: [number, number], b: [number, number]): Vec3[] {
   ];
 }
 
-function Tree({ nodes, from, step, color, nodeRefs }: { nodes: Node[]; from: number; step: number; color: THREE.Color; nodeRefs: React.RefObject<Map<string, THREE.Group>> }) {
+/**
+ * One tree = 3 draw calls for structure: instanced glass boxes, one merged
+ * fat-line geometry for every connector (revealed in parse order through
+ * instanceCount), plus a sprite per label.
+ */
+function Tree({ nodes, from, step, color }: { nodes: Node[]; from: number; step: number; color: THREE.Color }) {
   const mat = useMemo(() => glassMaterial(color, 1), [color]);
-  useEffect(() => () => mat.dispose(), [mat]);
-  const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
-  const groups = useRef<(THREE.Group | null)[]>([]);
-  const edges = useRef<(THREE.Object3D | null)[]>([]);
-  useFrame(() => {
-    const t = stageT(INDEX, store().progress);
+  const { boxes, lines, lineMat, sizes, edgeOf } = useMemo(() => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const sizes = nodes.map((n) => new THREE.Vector3(Math.max(2.9, n.label.length * 0.52), 1.4, 0.6));
+    const boxes = new THREE.InstancedMesh(UNIT_BOX, mat, nodes.length);
+    // bounds from the fully-grown tree, so the batch is still culled when off screen
+    const o = new THREE.Object3D();
     nodes.forEach((n, i) => {
-      const g = groups.current[i];
-      // grow in parse order, then clear the stage for the finale
-      const k = easeOut(remap(t, from + i * step, from + i * step + step * 1.6)) * (1 - remap(t, PAGE.to - 0.02, FINALE));
+      o.position.set(n.pos[0], n.pos[1], TZ);
+      o.scale.copy(sizes[i]);
+      o.updateMatrix();
+      boxes.setMatrixAt(i, o.matrix);
+    });
+    boxes.computeBoundingSphere();
+    const pts: number[] = [];
+    // edgeOf[i] = how many connector segments exist once node i is visible
+    const edgeOf: number[] = [];
+    nodes.forEach((n) => {
+      if (n.parent) {
+        const c = connector(byId.get(n.parent)!.pos, n.pos);
+        for (let k = 0; k < 3; k++) pts.push(...c[k], ...c[k + 1]);
+      }
+      edgeOf.push(pts.length / 6);
+    });
+    const geo = new LineSegmentsGeometry().setPositions(pts);
+    const lineMat = new LineMaterial({ color: color.getHex(), linewidth: 1.5, transparent: true, opacity: 0.8 });
+    const lines = new LineSegments2(geo, lineMat);
+    return { boxes, lines, lineMat, sizes, edgeOf };
+  }, [nodes, mat, color]);
+  useEffect(
+    () => () => {
+      mat.dispose();
+      boxes.dispose();
+      lines.geometry.dispose();
+      lineMat.dispose();
+    },
+    [mat, boxes, lines, lineMat],
+  );
+  const labels = useRef<(THREE.Group | null)[]>([]);
+  const o = useMemo(() => new THREE.Object3D(), []);
+  useFrame((state) => {
+    const t = stageT(INDEX, store().progress);
+    // grow in parse order, then clear the stage for the finale
+    const clear = 1 - remap(t, PAGE.to - 0.02, FINALE);
+    let shown = 0;
+    for (let i = 0; i < nodes.length; i++) {
+      const k = easeOut(remap(t, from + i * step, from + i * step + step * 1.6)) * clear;
+      const s = Math.max(0.0001, k);
+      o.position.set(nodes[i].pos[0], nodes[i].pos[1], TZ);
+      o.scale.set(sizes[i].x * s, sizes[i].y * s, sizes[i].z * s);
+      o.updateMatrix();
+      boxes.setMatrixAt(i, o.matrix);
+      const g = labels.current[i];
       if (g) {
         g.visible = k > 0.001;
-        g.scale.setScalar(Math.max(0.001, k));
+        g.scale.setScalar(s);
       }
-      const e = edges.current[i];
-      if (e) e.visible = k > 0.5;
-    });
+      if (k > 0.5) shown = edgeOf[i];
+    }
+    boxes.instanceMatrix.needsUpdate = true;
+    (lines.geometry as LineSegmentsGeometry).instanceCount = shown;
+    lineMat.resolution.set(state.size.width, state.size.height);
   });
-  const hex = "#" + color.getHexString();
   return (
     <group>
+      <primitive object={boxes} />
+      <primitive object={lines} />
       {nodes.map((n, i) => (
-        <group key={n.id}>
-          <group
-            ref={(g) => {
-              groups.current[i] = g;
-              if (g) nodeRefs.current.set(n.id, g);
-            }}
-            position={[n.pos[0], n.pos[1], TZ]}
-          >
-            <mesh geometry={UNIT_BOX} material={mat} scale={[Math.max(2.9, n.label.length * 0.52), 1.4, 0.6]} />
-            <Label text={n.label} size={0.66} position={[0, 0, 0.5]} color="#f2fbff" weight={700} />
-          </group>
-          {n.parent && (
-            <Line
-              ref={(l) => {
-                edges.current[i] = l as unknown as THREE.Object3D;
-              }}
-              points={connector(byId.get(n.parent)!.pos, n.pos)}
-              color={hex}
-              lineWidth={1.5}
-              transparent
-              opacity={0.8}
-            />
-          )}
+        <group
+          key={n.id}
+          ref={(g) => {
+            labels.current[i] = g;
+          }}
+          position={[n.pos[0], n.pos[1], TZ + 0.5]}
+          visible={false}
+        >
+          <Label text={n.label} size={0.66} color="#f2fbff" weight={700} />
         </group>
       ))}
     </group>
@@ -268,7 +307,6 @@ function Scene() {
   const finale = useRef<THREE.Group>(null);
   const renderTree = useRef<THREE.Sprite>(null);
   const domLabel = useRef<THREE.Sprite>(null);
-  const nodeRefs = useRef(new Map<string, THREE.Group>());
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const posOf = (id: string): Vec3 => {
     const n = [...DOM, ...CSSOM].find((x) => x.id === id)!;
@@ -292,15 +330,16 @@ function Scene() {
     bar.current?.setUrl(TARGET_HOST, false);
     bar.current?.setGlow(t > FINALE ? 0.6 : 0);
     ribbons.current.forEach((m, i) => setReveal(m, remap(t, i * 0.012, 0.16 + i * 0.012)));
-    tokens.current.forEach((s, i) => {
-      if (!s) return;
+    for (let i = 0; i < tokens.current.length; i++) {
+      const s = tokens.current[i];
+      if (!s) continue;
       const a = 0.02 + i * 0.022;
       const u = remap(t, a, a + 0.16);
       s.visible = u > 0 && u < 1;
       RIBBONS[i % RIBBONS.length].getPoint(u, tmp);
       s.position.set(tmp.x, tmp.y + 1, tmp.z);
       (s.material as THREE.SpriteMaterial).opacity = Math.sin(u * Math.PI) * 1.2;
-    });
+    }
     SUBS.forEach((sr, i) => {
       const u = remap(t, sr.from, sr.to);
       const moving = t > sr.from && t < sr.to;
@@ -383,8 +422,8 @@ function Scene() {
           />
         </group>
       ))}
-      <Tree nodes={DOM} from={DOM_FROM} step={DOM_STEP} color={COLORS.cyan} nodeRefs={nodeRefs} />
-      <Tree nodes={CSSOM} from={CSS_FROM} step={CSS_STEP} color={COLORS.magenta} nodeRefs={nodeRefs} />
+      <Tree nodes={DOM} from={DOM_FROM} step={DOM_STEP} color={COLORS.cyan} />
+      <Tree nodes={CSSOM} from={CSS_FROM} step={CSS_STEP} color={COLORS.magenta} />
       <Label ref={domLabel} text="DOM" size={1} position={[15, 23.6, TZ]} color={HEX.cyan} weight={800} visible={false} />
       {joinCurves.map((c, i) => (
         <FlowLine

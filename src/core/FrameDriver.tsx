@@ -42,15 +42,46 @@ export function PerfProbe() {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
   const invalidate = useThree((s) => s.invalidate);
+  const advance = useThree((s) => s.advance);
   const r = useRef({ frames: 0, last: performance.now() });
   useEffect(() => {
     // handle for console / automated measurement in ?debug
-    (window as unknown as { __three: unknown }).__three = { gl, scene, invalidate };
+    (window as unknown as { __three: unknown }).__three = { gl, scene, invalidate, advance };
+    /**
+     * Synchronous benchmark (independent of rAF throttling / vsync): renders
+     * `frames` frames back to back, forcing a GPU sync after each, and returns
+     * the mean frame cost. Used to produce PERF.md.
+     */
+    (window as unknown as { __bench: unknown }).__bench = async (progress: number, stage: number, frames = 60) => {
+      store().set({ progress, stage, lastActivity: performance.now() });
+      await new Promise((r) => setTimeout(r, 400)); // let React mount the stage window
+      const ctx = gl.getContext();
+      const px = new Uint8Array(4);
+      const sync = () => ctx.readPixels(0, 0, 1, 1, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
+      for (let i = 0; i < 40; i++) advance(performance.now()); // settle damping + compile
+      sync();
+      const t0 = performance.now();
+      for (let i = 0; i < frames; i++) {
+        advance(performance.now());
+        sync();
+      }
+      const ms = (performance.now() - t0) / frames;
+      const info = gl.info;
+      return {
+        ms: +ms.toFixed(2),
+        fps: Math.round(1000 / ms),
+        calls: info.render.calls,
+        triangles: info.render.triangles,
+        geometries: info.memory.geometries,
+        textures: info.memory.textures,
+        programs: info.programs?.length ?? 0,
+      };
+    };
     gl.info.autoReset = false;
     return () => {
       gl.info.autoReset = true;
     };
-  }, [gl, scene, invalidate]);
+  }, [gl, scene, invalidate, advance]);
   useFrame(() => {
     gl.info.reset();
   }, -100);

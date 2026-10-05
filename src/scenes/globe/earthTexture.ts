@@ -18,31 +18,34 @@ export function earthTextures(width: number) {
   const X = (lng: number) => ((lng + 180) / 360) * W;
   const Y = (lat: number) => ((90 - lat) / 180) * H;
 
-  const trace = (g: CanvasRenderingContext2D, ring: [number, number][]) => {
+  const trace = (g: CanvasRenderingContext2D, ring: [number, number][], scale = 1) => {
     g.beginPath();
-    ring.forEach(([lng, lat], i) => (i ? g.lineTo(X(lng), Y(lat)) : g.moveTo(X(lng), Y(lat))));
+    ring.forEach(([lng, lat], i) => (i ? g.lineTo(X(lng) * scale, Y(lat) * scale) : g.moveTo(X(lng) * scale, Y(lat) * scale)));
     g.closePath();
   };
 
-  // --- surface: R channel = land mask, G/B = tint
+  // --- surface: R channel = land mask. It's blurred anyway, so half resolution
+  // (a quarter of the pixels / VRAM of the lights texture).
+  const SW = W / 2;
+  const SH = H / 2;
   const sc = document.createElement("canvas");
-  sc.width = W;
-  sc.height = H;
+  sc.width = SW;
+  sc.height = SH;
   const s = sc.getContext("2d")!;
   s.fillStyle = "#000000";
-  s.fillRect(0, 0, W, H);
+  s.fillRect(0, 0, SW, SH);
   s.fillStyle = "#ff0000";
   LAND.forEach((r) => {
-    trace(s, r);
+    trace(s, r, 0.5);
     s.fill();
   });
   s.fillStyle = "#000000";
   WATER.forEach((r) => {
-    trace(s, r);
+    trace(s, r, 0.5);
     s.fill();
   });
   // soften the mask a touch so the shader gets a shelf gradient at coasts
-  s.filter = "blur(2px)";
+  s.filter = "blur(1px)";
   s.drawImage(sc, 0, 0);
   s.filter = "none";
 
@@ -94,12 +97,12 @@ export function earthTextures(width: number) {
     }
   }
   // faint rural light everywhere there is land
-  const mask = s.getImageData(0, 0, W, H).data;
+  const mask = s.getImageData(0, 0, SW, SH).data;
   const rural = Math.round(14000 * k);
   for (let i = 0; i < rural; i++) {
     const x = Math.floor(r() * W);
     const y = Math.floor(H * 0.12 + r() * H * 0.62);
-    if (mask[(y * W + x) * 4] < 200) continue;
+    if (mask[((y >> 1) * SW + (x >> 1)) * 4] < 200) continue;
     l.fillStyle = `rgba(255,190,110,${0.08 + r() * 0.25})`;
     l.fillRect(x, y, k, k);
   }

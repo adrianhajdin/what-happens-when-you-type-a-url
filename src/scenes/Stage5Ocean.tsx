@@ -213,12 +213,24 @@ function Globe() {
   );
   useEffect(() => () => mat.dispose(), [mat]);
   useEffect(() => () => atmo.dispose(), [atmo]);
-  const seg = tier === "high" ? [160, 120] : [96, 64];
+  // LOD: full tessellation only up close (stage 5); the fly-in/out from the
+  // network plane sees the coarse sphere.
+  const lod = useMemo(() => {
+    const l = new THREE.LOD();
+    const seg = tier === "high" ? [160, 120] : [96, 64];
+    l.addLevel(new THREE.Mesh(new THREE.SphereGeometry(R, seg[0], seg[1]), mat), 0);
+    l.addLevel(new THREE.Mesh(new THREE.SphereGeometry(R, 48, 32), mat), R * 6);
+    return l;
+  }, [mat, tier]);
+  useEffect(
+    () => () => {
+      for (const lv of lod.levels) (lv.object as THREE.Mesh).geometry.dispose();
+    },
+    [lod],
+  );
   return (
     <group position={GLOBE_CENTER}>
-      <mesh material={mat}>
-        <sphereGeometry args={[R, seg[0], seg[1]]} />
-      </mesh>
+      <primitive object={lod} />
       <mesh material={atmo} scale={1.1}>
         <sphereGeometry args={[R, 64, 48]} />
       </mesh>
@@ -296,6 +308,7 @@ function Scene() {
   const dunant = useRef<THREE.Mesh>(null);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const nrm = useMemo(() => new THREE.Vector3(), []);
+  const last = useRef(-2);
 
   useFrame(() => {
     const t = stageT(INDEX, store().progress);
@@ -306,11 +319,17 @@ function Scene() {
       ROUTE.getPointAt(Math.min(1, u), tmp);
       nrm.subVectors(tmp, GLOBE_CENTER).normalize();
       s.position.copy(tmp).addScaledVector(nrm, 7);
-      const leg = LEG_ENDS.findIndex((e) => u <= e);
-      const L = LEGS[Math.max(0, leg)];
+      let leg = 0;
+      while (leg < LEG_ENDS.length - 1 && u > LEG_ENDS[leg]) leg++;
       const ms = Math.round(u * MS_TOTAL);
-      if (t >= TRAVEL.to) readout.current!.setText(`origin renders  +${BUDGET.origin} ms  ·  then back  ~${BUDGET.back} ms`);
-      else readout.current!.setText(`${ms} ms one-way  ·  ${"label" in L ? `${L.label} · ${L.km.toLocaleString("en")} km` : `${L.km} km fibre`}`);
+      // only rebuild the string when the number on screen changes
+      const key = t >= TRAVEL.to ? -1 : ms * 10 + leg;
+      if (key !== last.current) {
+        last.current = key;
+        const L = LEGS[leg];
+        if (key === -1) readout.current!.setText(`origin renders  +${BUDGET.origin} ms  ·  then back  ~${BUDGET.back} ms`);
+        else readout.current!.setText(`${ms} ms one-way  ·  ${"label" in L ? `${L.label} · ${L.km.toLocaleString("en")} km` : `${L.km} km fibre`}`);
+      }
     }
     if (dunant.current) {
       const m = dunant.current.material as THREE.ShaderMaterial;

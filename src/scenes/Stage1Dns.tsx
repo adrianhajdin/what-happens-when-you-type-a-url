@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { DynamicLabel, Label, type DynamicLabelHandle } from "@/core/Label";
-import { RackTower } from "@/core/Tower";
+import { Towers, rackSpecs } from "@/core/Tower";
 import { FlowLine } from "@/core/FlowLine";
 import { COLORS, HEX } from "@/core/materials";
 import { cameraPath, type StageModule } from "@/core/types";
@@ -22,6 +22,11 @@ const TOWERS = {
   auth: { pos: [22, 0, -50] as Vec3, h: 15, w: 5, name: "AUTHORITATIVE", sub: "ns1.vercel-dns.com" },
 };
 type TowerId = keyof typeof TOWERS;
+
+/** All four DNS towers in one batched draw (see Towers). */
+const TOWER_SPECS = (Object.keys(TOWERS) as TowerId[]).flatMap((id) =>
+  rackSpecs(TOWERS[id].pos, TOWERS[id].h, TOWERS[id].w, id === "resolver" ? "cyan" : "magenta"),
+);
 
 const top = (id: TowerId) => {
   const t = TOWERS[id];
@@ -53,6 +58,7 @@ function Scene() {
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const [leg, setLeg] = useState(-1);
   const legRef = useRef(-1);
+  const ttlRef = useRef(-1);
 
   const groundLines = useMemo(() => {
     const g = (a: Vec3, b: Vec3) => new THREE.LineCurve3(new THREE.Vector3(a[0], 0.06, a[2]), new THREE.Vector3(b[0], 0.06, b[2]));
@@ -90,7 +96,10 @@ function Scene() {
       if (show) {
         // TTL starts ticking once the resolver has the answer
         const secs = Math.max(0, 60 - Math.floor(remap(t, 0.8, 1) * 6));
-        ttl.current!.setText(`${TARGET_IP} · TTL ${secs}s`);
+        if (secs !== ttlRef.current) {
+          ttlRef.current = secs;
+          ttl.current!.setText(`${TARGET_IP} · TTL ${secs}s`);
+        }
         if (t < HOP_END) {
           ROUTE.getPoint(u, tmp);
           ts.position.set(tmp.x, tmp.y - 1.3, tmp.z);
@@ -102,12 +111,12 @@ function Scene() {
   const cache = CACHE_AFTER[Math.min(Math.max(leg, 0), CACHE_AFTER.length - 1)] ?? [];
   return (
     <group>
+      <Towers specs={TOWER_SPECS} />
       {(Object.keys(TOWERS) as TowerId[]).map((id) => {
         const tw = TOWERS[id];
         const active = leg >= 0 && leg < LEGS.length && (LEGS[leg].to.equals(top(id)) || LEGS[leg].from.equals(top(id)));
         return (
           <group key={id}>
-            <RackTower position={tw.pos} height={tw.h} width={tw.w} edge={id === "root" ? "magenta" : id === "resolver" ? "cyan" : "magenta"} />
             <Label
               text={tw.name}
               sub={[tw.sub]}

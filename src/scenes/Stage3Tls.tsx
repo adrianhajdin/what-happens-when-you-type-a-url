@@ -156,66 +156,32 @@ function Key({ color, keyRef }: { color: THREE.Color; keyRef: (g: THREE.Group | 
 /* ------------------------------- padlock -------------------------------- */
 
 /**
- * The Tripo export is a whole diorama of design/s3.png (towers, tube, keys,
- * padlock). We only want the padlock, so at load we keep the triangles inside
- * its bounds (measured from a vertex-density plot of the raw model) and drop
- * the rest. Model-space bounds of the padlock, raw units:
+ * The Tripo export was a whole diorama of design/s3.png; scripts/extract-padlock.mjs
+ * cut it down to just the padlock offline. Here we only centre and normalise it.
  */
-const LOCK_BOUNDS = { minX: -0.045, maxX: 0.105, minY: 0.262 };
-
-function extractPadlock(src: THREE.Object3D) {
+function preparePadlock(src: THREE.Object3D) {
   const root = src.clone(true);
-  root.updateMatrixWorld(true);
-  const keep = new THREE.Group();
-  const v = new THREE.Vector3();
-  // bounds of the kept triangles only (Box3.setFromObject would measure the whole shared vertex buffer)
-  const box = new THREE.Box3();
-  root.traverse((o) => {
-    const mesh = o as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const g = mesh.geometry;
-    const pos = g.attributes.position;
-    const index = g.index;
-    const tri = index ? index.count / 3 : pos.count / 3;
-    const out: number[] = [];
-    const inside = new Uint8Array(pos.count);
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
-      inside[i] = v.x > LOCK_BOUNDS.minX && v.x < LOCK_BOUNDS.maxX && v.y > LOCK_BOUNDS.minY ? 1 : 0;
-    }
-    for (let t = 0; t < tri; t++) {
-      const a = index ? index.getX(t * 3) : t * 3;
-      const b = index ? index.getX(t * 3 + 1) : t * 3 + 1;
-      const c = index ? index.getX(t * 3 + 2) : t * 3 + 2;
-      if (inside[a] && inside[b] && inside[c]) {
-        out.push(a, b, c);
-        for (const i of [a, b, c]) box.expandByPoint(v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld));
-      }
-    }
-    const geo = new THREE.BufferGeometry();
-    for (const [name, attr] of Object.entries(g.attributes)) geo.setAttribute(name, attr);
-    geo.setIndex(out);
-    const src = mesh.material as THREE.MeshStandardMaterial;
-    // Unlit: the Tripo texture has the neon baked in; boost it so bloom catches the glow.
-    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: src.map, color: new THREE.Color(1.45, 1.45, 1.6), toneMapped: false }));
-    m.matrix.copy(mesh.matrixWorld);
-    m.matrixAutoUpdate = false;
-    keep.add(m);
-  });
-  // centre and normalise to a fixed height
+  const box = new THREE.Box3().setFromObject(root);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const k = 5 / size.y;
+  root.position.copy(center).multiplyScalar(-k);
+  root.scale.setScalar(k);
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const map = (m.material as THREE.MeshStandardMaterial).map;
+    // Unlit: the Tripo texture has the neon baked in; boost it so bloom catches the glow.
+    m.material = new THREE.MeshBasicMaterial({ map, color: new THREE.Color(1.45, 1.45, 1.6), toneMapped: false });
+  });
   const wrap = new THREE.Group();
-  keep.position.copy(center).multiplyScalar(-k);
-  keep.scale.setScalar(k);
-  wrap.add(keep);
+  wrap.add(root);
   return wrap;
 }
 
 function Padlock({ groupRef }: { groupRef: React.RefObject<THREE.Group | null> }) {
   const gltf = useGLTF(PADLOCK_URL);
-  const model = useMemo(() => extractPadlock(gltf.scene), [gltf]);
+  const model = useMemo(() => preparePadlock(gltf.scene), [gltf]);
   useEffect(() => () => disposeObject(model), [model]);
   return (
     <group ref={groupRef} position={LOCK_POS} scale={0}>
@@ -302,13 +268,14 @@ function Scene() {
     const hu = remap(t, BEAT.helloFrom, BEAT.helloTo);
     CHANNEL.getPoint(hu, tmp);
     const fan = Math.sin(Math.PI * Math.min(1, hu * 1.15));
-    ciphers.current.forEach((s, i) => {
-      if (!s) return;
+    for (let i = 0; i < ciphers.current.length; i++) {
+      const s = ciphers.current[i];
+      if (!s) continue;
       s.visible = t > BEAT.helloFrom && t < BEAT.helloTo + 0.02;
       const a = (i / (CIPHERS.length - 1) - 0.5) * 2.2;
       s.position.set(tmp.x + Math.sin(a) * 8 * fan, tmp.y + 2.5 + Math.cos(a) * 4.5 * fan, tmp.z + 2);
       (s.material as THREE.SpriteMaterial).opacity = fan;
-    });
+    }
 
     // ServerHello + certificate chain
     const su = remap(t, BEAT.serverFrom, BEAT.serverTo);
@@ -316,8 +283,9 @@ function Scene() {
     server.current?.setVisible(serverMoving);
     back.getPoint(su, tmp);
     server.current?.setPosition(tmp);
-    chain.current.forEach((s, i) => {
-      if (!s) return;
+    for (let i = 0; i < chain.current.length; i++) {
+      const s = chain.current[i];
+      if (!s) continue;
       s.visible = t > BEAT.serverFrom - 0.02 && t < BEAT.keysFrom + 0.06;
       if (t < BEAT.serverTo) s.position.set(tmp.x, tmp.y + 2.6 + i * 1.9, tmp.z + 1.2);
       else s.position.set(CLIENT[0] + 9, 7 + i * 1.9, CZ + 3);
@@ -326,18 +294,19 @@ function Scene() {
         c.visible = s.visible && t > BEAT.verify + i * 0.02;
         c.position.set(s.position.x - s.scale.x / 2 - 0.8, s.position.y, s.position.z + 0.1);
       }
-    });
+    }
 
     // keys fly in from both towers and combine
     const ku = easeInOut(remap(t, BEAT.keysFrom, BEAT.lockTo));
-    keys.current.forEach((g, i) => {
-      if (!g) return;
+    for (let i = 0; i < keys.current.length; i++) {
+      const g = keys.current[i];
+      if (!g) continue;
       g.visible = t > BEAT.keysFrom && t < BEAT.lockTo + 0.03;
       const sx = i === 0 ? CLIENT[0] : SERVER[0];
       g.position.set(sx + (LOCK_POS.x - sx + (i === 0 ? -1.2 : 1.2)) * ku, TOWER_H + 3 + (LOCK_POS.y - TOWER_H - 3) * ku, CZ + 1.5);
       g.rotation.set(0, i === 0 ? 0 : Math.PI, Math.sin(state.clock.elapsedTime * 2 + i) * 0.1);
       g.scale.setScalar(0.9 * (1 - remap(t, BEAT.lockTo - 0.03, BEAT.lockTo + 0.03)));
-    });
+    }
 
     // padlock assembles
     const lu = remap(t, BEAT.lockFrom, BEAT.lockTo);

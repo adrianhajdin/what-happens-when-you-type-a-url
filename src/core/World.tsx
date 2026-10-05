@@ -164,7 +164,7 @@ function cityLayout(count: number) {
     if (z < -100 && z > -200 && Math.abs(x) < 34) continue;
     if (z < -215 && Math.abs(x) < 70) continue;
     // keep the render stage's DOM / CSSOM trees readable
-    if (z > -45 && Math.abs(x) < 48) continue;
+    if (z > -100 && Math.abs(x) < 46) continue;
     const near = Math.abs(x) < 70;
     const w = 2 + r() * (near ? 4 : 7);
     const h = 4 + Math.pow(r(), 2.2) * (near ? 22 : 60);

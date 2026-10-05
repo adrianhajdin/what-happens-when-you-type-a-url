@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { Tower, UNIT_BOX, sharedTowerMaterial } from "@/core/Tower";
+import { Towers, UNIT_BOX, sharedTowerMaterial, type TowerSpec } from "@/core/Tower";
 import { FlowLine, setReveal } from "@/core/FlowLine";
 import { Label } from "@/core/Label";
 import { COLORS, HEX, glowTexture, hdr } from "@/core/materials";
@@ -39,54 +39,51 @@ const MISS_PATH = new THREE.CatmullRomCurve3([
   new THREE.Vector3(0, 3.5, -430),
 ]);
 
+const CORNERS = [
+  [-8, -8],
+  [8, -8],
+  [-8, 8],
+  [8, 8],
+] as const;
+
+const FORTRESS: TowerSpec[] = [
+  { position: [0, 0, FZ], size: [13, 17, 13], edge: "magenta", density: 0.65 },
+  ...CORNERS.map(([x, z], i): TowerSpec => ({ position: [x, 0, FZ + z], size: [4.2, 23, 4.2], edge: i % 2 ? "cyan" : "magenta", density: 0.7 })),
+  { position: [0, 17, FZ], size: [8, 3, 8], edge: "cyan", density: 0.3, reflect: false },
+  // bridge pillars over the water
+  ...Array.from({ length: 9 }, (_, i): TowerSpec => ({ position: [0, -6, -310 - i * 14], size: [1.2, 8.5, 1.2], edge: "cyan", density: 0, reflect: false })),
+];
+
 function Fortress({ scanRef }: { scanRef: React.RefObject<THREE.Mesh | null> }) {
   const mat = useMemo(() => sharedTowerMaterial("magenta", "cyan", 0.6), []);
   return (
-    <group position={[0, 0, FZ]}>
-      <Tower position={[0, 0, 0]} size={[13, 17, 13]} edge="magenta" density={0.65} />
-      {[
-        [-8, -8],
-        [8, -8],
-        [-8, 8],
-        [8, 8],
-      ].map(([x, z], i) => (
-        <group key={i}>
-          <Tower position={[x, 0, z]} size={[4.2, 23, 4.2]} edge={i % 2 ? "cyan" : "magenta"} density={0.7} />
-          <mesh geometry={UNIT_BOX} material={mat} position={[x, 23 + 4, z]} scale={[0.4, 8, 0.4]} />
-        </group>
-      ))}
-      <Tower position={[0, 17, 0]} size={[8, 3, 8]} edge="cyan" density={0.3} reflect={false} />
-      <mesh geometry={UNIT_BOX} material={mat} position={[0, 26, 0]} scale={[0.5, 12, 0.5]} />
-      {/* ground rings */}
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.05, 0]}>
-        <ringGeometry args={[13.2, 13.6, 96]} />
-        <meshBasicMaterial color={hdr(COLORS.magenta, 2.5)} toneMapped={false} />
-      </mesh>
-      <mesh rotation-x={-Math.PI / 2} position={[0, 0.05, 0]}>
-        <ringGeometry args={[15.6, 15.8, 96]} />
-        <meshBasicMaterial color={hdr(COLORS.cyan, 2)} toneMapped={false} />
-      </mesh>
-      {/* cache-lookup scan ring */}
-      <mesh ref={scanRef} rotation-x={-Math.PI / 2} visible={false}>
-        <ringGeometry args={[10, 10.4, 64]} />
-        <meshBasicMaterial color={hdr(COLORS.cyan, 3)} toneMapped={false} transparent side={THREE.DoubleSide} />
-      </mesh>
-      {/* front door */}
-      <mesh position={[0, 3, 6.6]}>
-        <planeGeometry args={[3.2, 6]} />
-        <meshBasicMaterial color={hdr(COLORS.cyan, 1.6)} toneMapped={false} />
-      </mesh>
-    </group>
-  );
-}
-
-function Pillars() {
-  return (
     <group>
-      {Array.from({ length: 9 }, (_, i) => {
-        const z = -310 - i * 14;
-        return <Tower key={i} position={[0, -6, z]} size={[1.2, 8.5, 1.2]} edge="cyan" density={0} reflect={false} />;
-      })}
+      <Towers specs={FORTRESS} />
+      <group position={[0, 0, FZ]}>
+        {CORNERS.map(([x, z], i) => (
+          <mesh key={i} geometry={UNIT_BOX} material={mat} position={[x, 23 + 4, z]} scale={[0.4, 8, 0.4]} />
+        ))}
+        <mesh geometry={UNIT_BOX} material={mat} position={[0, 26, 0]} scale={[0.5, 12, 0.5]} />
+        {/* ground rings */}
+        <mesh rotation-x={-Math.PI / 2} position={[0, 0.05, 0]}>
+          <ringGeometry args={[13.2, 13.6, 96]} />
+          <meshBasicMaterial color={hdr(COLORS.magenta, 2.5)} toneMapped={false} />
+        </mesh>
+        <mesh rotation-x={-Math.PI / 2} position={[0, 0.05, 0]}>
+          <ringGeometry args={[15.6, 15.8, 96]} />
+          <meshBasicMaterial color={hdr(COLORS.cyan, 2)} toneMapped={false} />
+        </mesh>
+        {/* cache-lookup scan ring */}
+        <mesh ref={scanRef} rotation-x={-Math.PI / 2} visible={false}>
+          <ringGeometry args={[10, 10.4, 64]} />
+          <meshBasicMaterial color={hdr(COLORS.cyan, 3)} toneMapped={false} transparent side={THREE.DoubleSide} />
+        </mesh>
+        {/* front door */}
+        <mesh position={[0, 3, 6.6]}>
+          <planeGeometry args={[3.2, 6]} />
+          <meshBasicMaterial color={hdr(COLORS.cyan, 1.6)} toneMapped={false} />
+        </mesh>
+      </group>
     </group>
   );
 }
@@ -113,9 +110,10 @@ function Scene() {
       scan.current.scale.set(k, k, 1);
     }
     const g = easeInOut(remap(t, BEAT.gateFrom, BEAT.gateTo));
-    doors.current.forEach((d, i) => {
+    for (let i = 0; i < doors.current.length; i++) {
+      const d = doors.current[i];
       if (d) d.position.x = (i === 0 ? -1 : 1) * (1.6 + g * 3.2);
-    });
+    }
     const p = t < BEAT.scanFrom ? 0 : t < BEAT.miss ? 1 : t < BEAT.gateFrom ? 2 : 3;
     if (p !== phaseRef.current) {
       phaseRef.current = p;
@@ -142,7 +140,6 @@ function Scene() {
       <FlowLine ref={inLine} curve={IN_PATH} color={COLORS.cyan} radius={0.08} segments={40} reveal={0} />
       <FlowLine ref={hitLine} curve={HIT_PATH} color={COLORS.magenta} radius={0.07} segments={40} opacity={0.45} base={0.3} reveal={0} />
       <FlowLine ref={missLine} curve={MISS_PATH} color={COLORS.cyan} radius={0.1} segments={96} dash={30} speed={1.2} reveal={0} />
-      <Pillars />
       <Label text="EDGE PoP  ·  fra1" sub={["Frankfurt  ·  peering at DE-CIX"]} size={1.1} position={[0, 34, FZ]} weight={700} />
       {phase >= 1 && (
         <Label

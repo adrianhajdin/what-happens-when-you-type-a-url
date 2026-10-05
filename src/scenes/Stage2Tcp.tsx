@@ -47,7 +47,8 @@ function Scene() {
 
   useFrame(() => {
     const t = stageT(INDEX, store().progress);
-    STEPS.forEach((s, i) => {
+    for (let i = 0; i < STEPS.length; i++) {
+      const s = STEPS[i];
       const u = remap(t, s.from, s.to);
       const moving = t > s.from && t < s.to;
       // the hero packet plays SYN; the other two are local
@@ -66,7 +67,7 @@ function Scene() {
       // the bridge lights up behind the packet and stays lit
       const line = lines.current[i];
       if (line) setReveal(line, u);
-    });
+    }
     const st = state(t);
     const k = st.join();
     if (k !== key.current) {

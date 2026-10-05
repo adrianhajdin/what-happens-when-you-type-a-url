@@ -47,15 +47,17 @@ export const BrowserBar = forwardRef<BrowserHandle, { position?: Vec3 }>(functio
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
-    return { c, tex, last: "" };
+    return { c, tex, text: "\u0000", caret: false, placeholder: false };
   }, []);
   useEffect(() => () => text.tex.dispose(), [text]);
 
   useImperativeHandle(ref, () => ({
     setUrl(t, caret, placeholder = false) {
-      const key = `${t}|${caret}|${placeholder}`;
-      if (key === text.last) return;
-      text.last = key;
+      // called every frame: compare fields, don't build a key string
+      if (t === text.text && caret === text.caret && placeholder === text.placeholder) return;
+      text.text = t;
+      text.caret = caret;
+      text.placeholder = placeholder;
       const g = text.c.getContext("2d")!;
       const fam = getComputedStyle(document.body).getPropertyValue("--font-mono").trim() || "monospace";
       g.clearRect(0, 0, 1536, 128);

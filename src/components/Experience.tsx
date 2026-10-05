@@ -2,23 +2,22 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { Leva, useControls, button } from "leva";
+import dynamic from "next/dynamic";
 import * as THREE from "three";
 import { CameraRig } from "@/core/CameraRig";
 import { Stage } from "@/core/Stage";
 import { SharedSet } from "@/core/Environment";
 import { World } from "@/core/World";
 import { HeroPacket } from "@/core/HeroPacket";
-import { Effects, BLOOM } from "@/core/Effects";
+import { Effects } from "@/core/Effects";
 import { FrameDriver, PerfProbe } from "@/core/FrameDriver";
 import { Hotspots } from "@/core/Hotspots";
 import { clearLabelCache } from "@/core/Label";
 import { Canyon } from "@/scenes/parts/Canyon";
 import { earthTextures } from "@/scenes/globe/earthTexture";
 import { SCENES } from "@/scenes";
-import { STAGES } from "@/lib/stages";
 import { useStore, store, type Tier } from "@/lib/store";
-import { ScrollDriver, jumpToStage } from "./ScrollDriver";
+import { ScrollDriver } from "./ScrollDriver";
 import { Hud } from "./Hud";
 import { Loader } from "./Loader";
 import { useGeoOrigin } from "./useGeoOrigin";
@@ -40,15 +39,29 @@ function Ready() {
     const run = async () => {
       store().set({ loaded: 0.55 });
       await new Promise((r) => setTimeout(r, 30));
-      // the globe texture is the heaviest CPU job: do it behind the loader, not mid-scroll
-      earthTextures(store().tier === "high" ? 4096 : 2048);
-      if (cancelled) return;
+      const steps: Record<string, number> = {};
       store().set({ loaded: 0.8 });
       await new Promise((r) => setTimeout(r, 30));
+      const t0 = performance.now();
       await gl.compileAsync?.(scene, camera);
+      steps.compile = Math.round(performance.now() - t0);
+      (window as unknown as { __loadSteps: unknown }).__loadSteps = steps;
       if (cancelled) return;
       store().set({ loaded: 1 });
-      requestAnimationFrame(() => store().set({ ready: true, lastActivity: performance.now() }));
+      requestAnimationFrame(() => {
+        (window as unknown as { __ttff: number }).__ttff = Math.round(performance.now());
+        store().set({ ready: true, lastActivity: performance.now() });
+        // The globe texture is the heaviest CPU job (~50–100 ms). Do it once the
+        // first frame is up, while the visitor reads stage 0; it's long done by
+        // the time the globe mounts (stage 4).
+        const gen = () => {
+          const t = performance.now();
+          earthTextures(store().tier === "high" ? 4096 : 2048);
+          steps.earth = Math.round(performance.now() - t);
+        };
+        if ("requestIdleCallback" in window) requestIdleCallback(gen, { timeout: 2500 });
+        else setTimeout(gen, 600);
+      });
     };
     run();
     return () => {
@@ -58,15 +71,7 @@ function Ready() {
   return null;
 }
 
-function DebugControls() {
-  useControls("bloom", {
-    strength: { value: BLOOM.strength, min: 0, max: 3, onChange: (v: number) => (BLOOM.strength = v) },
-    radius: { value: BLOOM.radius, min: 0, max: 1, onChange: (v: number) => (BLOOM.radius = v) },
-    threshold: { value: BLOOM.threshold, min: 0, max: 2, onChange: (v: number) => (BLOOM.threshold = v) },
-  });
-  useControls("jump", Object.fromEntries(STAGES.map((s, i) => [`${i} ${s.short}`, button(() => jumpToStage(i))])));
-  return null;
-}
+const DebugPanel = dynamic(() => import("./DebugPanel"), { ssr: false });
 
 export default function Experience() {
   const debug = useStore((s) => s.debug);
@@ -151,8 +156,7 @@ export default function Experience() {
       <ScrollDriver />
       <Hud />
       <Loader />
-      <Leva hidden={!debug} collapsed />
-      {debug && <DebugControls />}
+      {debug && <DebugPanel />}
     </>
   );
 }

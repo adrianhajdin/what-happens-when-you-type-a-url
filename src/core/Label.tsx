@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useLayoutEffect, useMemo, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import type { ThreeElements } from "@react-three/fiber";
 
@@ -78,9 +78,14 @@ function draw(canvas: HTMLCanvasElement, text: string, s: LabelStyle) {
   return W / H;
 }
 
-type Entry = { tex: THREE.CanvasTexture; aspect: number };
+type Entry = { key: string; tex: THREE.CanvasTexture; aspect: number; refs: number };
 const cache = new Map<string, Entry>();
 
+/**
+ * Cached by content and reference-counted: identical labels share one
+ * texture, and the GPU copy is freed when the last label using it unmounts
+ * (stages unmount 2 stages behind, so their label textures go with them).
+ */
 export function textTexture(text: string, style: LabelStyle = {}): Entry {
   const key = text + "|" + JSON.stringify(style);
   let e = cache.get(key);
@@ -90,10 +95,21 @@ export function textTexture(text: string, style: LabelStyle = {}): Entry {
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
-    e = { tex, aspect };
+    e = { key, tex, aspect, refs: 0 };
     cache.set(key, e);
   }
   return e;
+}
+
+function retain(e: Entry) {
+  e.refs++;
+  if (!cache.has(e.key)) cache.set(e.key, e);
+}
+
+function release(e: Entry) {
+  if (--e.refs > 0) return;
+  e.tex.dispose();
+  cache.delete(e.key);
 }
 
 /** Drop every cached label texture (called when fonts finish loading). */
@@ -122,7 +138,12 @@ export const Label = forwardRef<THREE.Sprite, LabelProps>(function Label(
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [color, bg, border, mono, weight, sub?.join("\n"), subColor, align],
   );
-  const { tex, aspect } = useMemo(() => textTexture(text, style), [text, style]);
+  const entry = useMemo(() => textTexture(text, style), [text, style]);
+  const { tex, aspect } = entry;
+  useEffect(() => {
+    retain(entry);
+    return () => release(entry);
+  }, [entry]);
   const lines = 1 + (sub?.length ?? 0) * 0.7;
   const h = size * (lines + (bg ? 0.55 : 0.2));
   return (

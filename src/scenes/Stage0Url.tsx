@@ -37,10 +37,16 @@ const DROP = new THREE.CubicBezierCurve3(
 
 type Status = "idle" | "scan" | "miss";
 
+const PLACEHOLDER = "Search or type a URL";
+/** Every prefix of the host, precomputed so typing allocates nothing per frame. */
+const TYPED = Array.from({ length: TARGET_HOST.length + 1 }, (_, i) => TARGET_HOST.slice(0, i));
+
 const BLOCKS = [
   { id: "browser", title: "BROWSER CACHE", x: -4.6, scan: BEAT.browserScan, miss: BEAT.browserMiss, rows: ["github.com        A  ✓", "fonts.gstatic.com A  ✓", `${TARGET_HOST.padEnd(17)} ?  —`] },
   { id: "os", title: "OS RESOLVER CACHE", x: 4.6, scan: BEAT.osScan, miss: BEAT.osMiss, rows: ["/etc/hosts        ✓", "api.github.com A  ✓", `${TARGET_HOST.padEnd(17)} ?  —`] },
 ];
+
+const statusOf = (b: (typeof BLOCKS)[number], t: number): Status => (t >= b.miss ? "miss" : t >= b.scan ? "scan" : "idle");
 
 function MemoryBlock({ title, x, rows, status }: { title: string; x: number; rows: string[]; status: Status }) {
   const mat = useMemo(() => glassMaterial(COLORS.cyan, 0.9), []);
@@ -81,25 +87,24 @@ function MemoryBlock({ title, x, rows, status }: { title: string; x: number; row
 function Scene() {
   const bar = useRef<BrowserHandle>(null);
   const [status, setStatus] = useState<[Status, Status]>(["idle", "idle"]);
-  const statusKey = useRef("idle,idle");
+  const statusKey = useRef<[Status, Status]>(["idle", "idle"]);
   const pool = useRef<THREE.Mesh>(null);
 
   useFrame(() => {
     const t = stageT(INDEX, store().progress);
     const n = Math.round(remap(t, BEAT.typeStart, BEAT.typeEnd) * TARGET_HOST.length);
-    const typed = TARGET_HOST.slice(0, n);
     const blink = Math.floor(performance.now() / 530) % 2 === 0;
-    if (n === 0) bar.current?.setUrl("Search or type a URL", blink, true);
-    else bar.current?.setUrl(typed, t < BEAT.enter && blink);
+    if (n === 0) bar.current?.setUrl(PLACEHOLDER, blink, true);
+    else bar.current?.setUrl(TYPED[n], t < BEAT.enter && blink);
     // enter pulse
     const pulse = t > BEAT.enter ? Math.max(0, 1 - (t - BEAT.enter) * 12) : 0;
     bar.current?.setGlow(pulse + (t > BEAT.birth ? remap(t, BEAT.birth, BEAT.drop) : 0));
 
-    const s = BLOCKS.map((b) => (t >= b.miss ? "miss" : t >= b.scan ? "scan" : "idle")) as [Status, Status];
-    const key = s.join(",");
-    if (key !== statusKey.current) {
-      statusKey.current = key;
-      setStatus(s);
+    const a = statusOf(BLOCKS[0], t);
+    const b = statusOf(BLOCKS[1], t);
+    if (a !== statusKey.current[0] || b !== statusKey.current[1]) {
+      statusKey.current = [a, b];
+      setStatus(statusKey.current);
     }
     if (pool.current) (pool.current.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.4 * remap(t, BEAT.birth, 1);
   });
