@@ -433,8 +433,14 @@ button {
     right: var(--gutter);
     bottom: calc(var(--gutter) + 34px);
   }
-  .hud-orbit,
-  .hud-hotspot-tip {
+  .hud-orbit {
     bottom: calc(var(--gutter) + 26px);
+  }
+  .hud-hotspot-tip {
+    display: none;
+  }
+  .hud-hint {
+    white-space: nowrap;
+    bottom: calc(var(--gutter) + 40px);
   }
 }

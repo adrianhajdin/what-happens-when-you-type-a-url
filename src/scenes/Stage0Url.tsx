@@ -129,7 +129,8 @@ const path = cameraPath([
   { t: 0.36, position: [0, 10.4, 17.5], target: [0, 10.8, -2], fov: 42 },
   { t: 0.72, position: [1.2, 10.2, 16], target: [1.5, 10.2, -2], fov: 42 },
   { t: 0.8, position: [3.2, 9.8, 11], target: [5, 8.6, -1], fov: 44 },
-  { t: 1, position: [5, 11.5, 20], target: [0, 2.5, -14], fov: 48 },
+  // pull up and back: the exit to DNS rises between and above the two cache blocks
+  { t: 1, position: [0, 16.5, 19], target: [0, 3, -14], fov: 48 },
 ]);
 
 export const Stage0Url: StageModule & { id: string } = {

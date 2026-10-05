@@ -33,13 +33,14 @@ type StageModule = {
 
 | File | Role |
 | --- | --- |
-| `CameraRig` | The only owner of the camera. In a stage: `camera(t)`. Between stages: eases `cameraOut(i)` → `cameraIn(i+1)` on a lifted arc. Light damping on top. Free-orbit offset only on the globe stage. |
+| `CameraRig` | The only owner of the camera. In a stage: `camera(t)`. Between stages: eases `cameraOut(i)` → `cameraIn(i+1)` on a lifted arc. Light damping on top. Free-orbit offset only on the globe stage. On screens narrower than 1.45:1 it dollies back from the target and widens the FOV a little, so stages framed for landscape still fit on a phone. |
 | `HeroPacket` | The protagonist. Uses `packet(t)` of the active stage; in transitions it flies `packet(1)` → `next.packet(0)`. |
 | `Packet` | Emissive core + halo + spring-chain trail (preallocated `Float32Array`). Progress-based API: `followPath(curve, t)`, `setPosition`, `setVisible`, `setScale`. Stages use extra instances for SYN-ACK, subresources, etc. |
 | `Stage` | Mounts a stage only within ±1 of the active one, hides it unless on screen, preloads its GLBs two stages ahead, and calls `useGLTF.clear` once it's 2+ stages away. Scenes dispose their own GPU resources on unmount (`disposeObject`). |
 | `SharedSet` | The same lifecycle for a set shared by several stages (the canyon for TCP and TLS). |
 | `World` | Shared environment: semi-transparent wet floor (shader grid, canyon hole, shoreline), mirrored towers underneath as reflections, instanced city (1 draw call + 1 for reflections), skyline, ocean, dust, stars, moon. It also drives fog density per stage. |
 | `Effects` | Bloom using three's own `UnrealBloomPass`, run at 1/2 (high tier) or 1/3 (low tier) resolution, with the composer target MSAA'd on the high tier. |
+| `AdaptiveQuality` | While frames flow back to back, steps the pixel ratio down if the average frame time is over ~33 ms (the 30 fps floor) and back up when there's headroom. |
 | `FrameDriver` | `frameloop="demand"`: renders only while scrolling, dragging, settling (1.4 s) or on the landing intro. |
 | `Label` / `DynamicLabel` | Canvas-texture text sprites (no font downloads, cached by content). |
 | `Tower` | One shared unit box and cached shader materials, so every tower in the app shares geometry and programs. |

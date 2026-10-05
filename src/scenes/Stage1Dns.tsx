@@ -153,11 +153,12 @@ function Scene() {
 }
 
 const path = cameraPath([
-  { t: 0, position: [4, 8, -4], target: [2, 12, -52], fov: 52 },
+  { t: 0, position: [0, 13, -10], target: [1, 12, -52], fov: 52 },
   { t: 0.25, position: [-6, 14, -18], target: [-2, 18, -60], fov: 52 },
   { t: 0.55, position: [2, 22, -22], target: [6, 16, -60], fov: 50 },
   { t: 0.85, position: [0, 10, -12], target: [0, 6, -42], fov: 50 },
-  { t: 1, position: [4, 9, -16], target: [0, 4, -64], fov: 50 },
+  // exit to the left of the root tower so the fly-over to the canyon clears it
+  { t: 1, position: [-18, 22, -30], target: [-8, 6, -100], fov: 50 },
 ]);
 
 export const Stage1Dns: StageModule & { id: string } = {

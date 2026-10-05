@@ -24,12 +24,24 @@ function poseAt(m: StageModule, t: number, out: CameraPose) {
 }
 
 /**
+ * Stages are framed for landscape. On narrower screens keep roughly the same
+ * horizontal coverage: dolly back from the target and widen the FOV a little
+ * (a pure FOV fix would need ~85° on a phone and distort badly).
+ */
+const REF_ASPECT = 1.45;
+function narrowFit(aspect: number) {
+  const k = Math.max(1, REF_ASPECT / aspect);
+  return { dolly: Math.pow(k, 0.62), fovBoost: Math.min(14, (k - 1) * 7) };
+}
+
+/**
  * Owns the camera. Inside a stage it follows that stage's camera(t); between
  * stages it eases from cameraOut(i) to cameraIn(i+1) along a lifted arc. A
  * light critically-damped follow smooths whatever the scroll scrub leaves.
  */
 export function CameraRig() {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
+  const size = useThree((s) => s.size);
   const r = useRef({
     loc: { index: 0, t: 0, transitioning: false, u: 0 } as Loc,
     a: { position: new THREE.Vector3(), target: new THREE.Vector3(), fov: DEFAULT_FOV } as CameraPose,
@@ -93,10 +105,13 @@ export function CameraRig() {
     s.pos.lerp(s.a.position, k);
     s.tgt.lerp(s.a.target, k);
     s.fov += (s.a.fov - s.fov) * k;
+    const fit = narrowFit(size.width / size.height);
     camera.position.copy(s.pos);
+    if (fit.dolly > 1) camera.position.sub(s.tgt).multiplyScalar(fit.dolly).add(s.tgt);
     camera.lookAt(s.tgt);
-    if (Math.abs(camera.fov - s.fov) > 0.01) {
-      camera.fov = s.fov;
+    const fov = s.fov + fit.fovBoost;
+    if (Math.abs(camera.fov - fov) > 0.01) {
+      camera.fov = fov;
       camera.updateProjectionMatrix();
     }
   }, -2);

@@ -12,6 +12,7 @@ import { HeroPacket } from "@/core/HeroPacket";
 import { Effects } from "@/core/Effects";
 import { FrameDriver, PerfProbe } from "@/core/FrameDriver";
 import { Hotspots } from "@/core/Hotspots";
+import { AdaptiveQuality } from "@/core/AdaptiveQuality";
 import { clearLabelCache } from "@/core/Label";
 import { Canyon } from "@/scenes/parts/Canyon";
 import { earthTextures } from "@/scenes/globe/earthTexture";
@@ -45,11 +46,11 @@ function Ready() {
       const t0 = performance.now();
       await gl.compileAsync?.(scene, camera);
       steps.compile = Math.round(performance.now() - t0);
-      (window as unknown as { __loadSteps: unknown }).__loadSteps = steps;
+      if (store().debug) (window as unknown as { __loadSteps: unknown }).__loadSteps = steps;
       if (cancelled) return;
       store().set({ loaded: 1 });
       requestAnimationFrame(() => {
-        (window as unknown as { __ttff: number }).__ttff = Math.round(performance.now());
+        if (store().debug) (window as unknown as { __ttff: number }).__ttff = Math.round(performance.now());
         store().set({ ready: true, lastActivity: performance.now() });
         // The globe texture is the heaviest CPU job (~50–100 ms). Do it once the
         // first frame is up, while the visitor reads stage 0; it's long done by
@@ -149,6 +150,7 @@ export default function Experience() {
             <Hotspots />
             <Effects />
             <Ready />
+            <AdaptiveQuality />
             {debug && <PerfProbe />}
           </Canvas>
         )}
