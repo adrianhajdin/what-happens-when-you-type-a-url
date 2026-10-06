@@ -9,6 +9,7 @@ import { Label } from "@/core/Label";
 import { COLORS, HEX, glowTexture, hdr } from "@/core/materials";
 import { cameraPath, type StageModule } from "@/core/types";
 import { STAGES, stageT } from "@/lib/stages";
+import { TARGET_HOST } from "@/lib/journey";
 import { remap, easeInOut } from "@/lib/math";
 import { store } from "@/lib/store";
 
@@ -144,7 +145,7 @@ function Scene() {
       {phase >= 1 && (
         <Label
           text={phase === 1 ? "cache lookup  GET /" : "cache  MISS"}
-          sub={phase === 1 ? ["key: vercel.com/  ·  checking…"] : ["nothing fresh here → forward to origin"]}
+          sub={phase === 1 ? [`key: ${TARGET_HOST}/  ·  checking…`] : ["nothing fresh here → forward to origin"]}
           size={1.25}
           position={[-13, 13, FZ + 10]}
           color={phase === 1 ? HEX.cyan : HEX.red}

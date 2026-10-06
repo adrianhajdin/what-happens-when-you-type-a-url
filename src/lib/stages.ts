@@ -1,4 +1,4 @@
-import { BUDGET, TARGET_HOST, TARGET_IP } from "./journey";
+import { BUDGET, TARGET_HOST, TARGET_IP, TARGET_NS } from "./journey";
 import type { Vec3 } from "./math";
 import { clamp01 } from "./math";
 
@@ -86,13 +86,13 @@ export const STAGES: StageMeta[] = [
         id: "dns-root",
         position: [-2, 37, -72],
         title: "Root servers",
-        body: "13 named root servers (a–m.root-servers.net), hundreds of anycast instances. They don't know vercel.com. They only know who runs .com.",
+        body: `13 named root servers (a–m.root-servers.net), hundreds of anycast instances. They don't know ${TARGET_HOST}. They only know who runs .com.`,
       },
       {
         id: "dns-tld",
         position: [12, 22.5, -64],
         title: ".com TLD servers",
-        body: "Operated by Verisign. They answer with the authoritative nameservers for vercel.com, not the address itself.",
+        body: `Operated by Verisign. They answer with the authoritative nameservers for ${TARGET_HOST} (${TARGET_NS}), not the address itself.`,
       },
       {
         id: "dns-auth",

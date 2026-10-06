@@ -12,6 +12,8 @@ type State = {
   stage: number;
   hotspot: string | null;
   debug: boolean;
+  /** ?video: offline recording mode (no scroll, no hotspots, virtual clock). */
+  video: boolean;
   tier: Tier;
   /** Loading screen. */
   loaded: number;
@@ -32,6 +34,7 @@ export const useStore = create<State>((set) => ({
   stage: 0,
   hotspot: null,
   debug: false,
+  video: false,
   tier: "high",
   loaded: 0,
   ready: false,

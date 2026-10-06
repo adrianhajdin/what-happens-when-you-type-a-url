@@ -1,6 +1,6 @@
 # What happens when you type a URL
 
-A scroll-driven 3D journey of a single request: from your address bar through the browser and OS caches, recursive DNS, the TCP handshake and TLS 1.3, to a CDN edge in Frankfurt. There it's a cache miss, so the request crosses the Atlantic on the real Dunant submarine cable to an origin in Ashburn, then comes back as HTML that becomes a DOM, a CSSOM and finally a page.
+A scroll-driven 3D journey of a single request to jsmastery.com: from your address bar through the browser and OS caches, recursive DNS, the TCP handshake and TLS 1.3, to a CDN edge in Frankfurt. There it's a cache miss, so the request crosses the Atlantic on the real Dunant submarine cable to an origin in Ashburn, then comes back as HTML that becomes a DOM, a CSSOM and finally a page.
 
 **1.2 s. That's what just happened.**
 
@@ -47,6 +47,16 @@ Open http://localhost:3000 and scroll.
 | `?debug` | fps / draw calls / triangles / memory readout, leva panel (bloom + jump to stage), `window.__bench` |
 | `?tier=low` / `?tier=high` | force the quality tier (auto-detected otherwise) |
 | `?geo=0` | disable the geolocated starting city |
+| `?video` | recording mode used by `npm run record` (no scroll, hints or hotspots; frame-by-frame on a virtual clock) |
+
+### Record the shareable video
+
+```bash
+npm run build && npm start
+npm run record
+```
+
+This writes `video/journey-1080p60.mp4` (~74 s, H.264, X/Twitter-ready). Pacing per stage lives at the top of `scripts/record-video.mjs`; `--width 1080 --height 1350` gives a 4:5 cut, `--from/--to` renders part of it.
 
 ## How it's built
 

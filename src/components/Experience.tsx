@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import dynamic from "next/dynamic";
 import * as THREE from "three";
@@ -13,6 +13,7 @@ import { Effects } from "@/core/Effects";
 import { FrameDriver, PerfProbe } from "@/core/FrameDriver";
 import { Hotspots } from "@/core/Hotspots";
 import { AdaptiveQuality } from "@/core/AdaptiveQuality";
+import { VideoDriver } from "@/core/VideoDriver";
 import { clearLabelCache } from "@/core/Label";
 import { Canyon } from "@/scenes/parts/Canyon";
 import { earthTextures } from "@/scenes/globe/earthTexture";
@@ -79,12 +80,14 @@ export default function Experience() {
   const tier = useStore((s) => s.tier);
   const stage = useStore((s) => s.stage);
   const [fontsReady, setFontsReady] = useState(false);
+  const video = useMemo(() => new URLSearchParams(location.search).has("video"), []);
   const drag = useRef<{ x: number; y: number } | null>(null);
   useGeoOrigin();
 
   useEffect(() => {
     const q = new URLSearchParams(location.search);
-    store().set({ debug: q.has("debug"), tier: detectTier() });
+    store().set({ debug: q.has("debug"), video: q.has("video"), tier: detectTier() });
+    if (q.has("video")) document.documentElement.classList.add("is-video");
     if (q.has("debug")) (window as unknown as { __store: typeof useStore }).__store = useStore;
     const fams = ["--font-mono", "--font-sans"].map((v) => getComputedStyle(document.body).getPropertyValue(v).trim());
     Promise.all(fams.flatMap((f) => (f ? [document.fonts.load(`700 64px ${f}`), document.fonts.load(`500 64px ${f}`)] : [])))
@@ -132,7 +135,7 @@ export default function Experience() {
       >
         {fontsReady && (
           <Canvas
-            frameloop="demand"
+            frameloop={video ? "never" : "demand"}
             dpr={tier === "high" ? [1, 1.75] : [1, 1]}
             gl={{ antialias: false, powerPreference: "high-performance", toneMapping: THREE.NeutralToneMapping }}
             camera={{ fov: 45, near: 0.1, far: 9000, position: [0, 9.4, 15.5] }}
@@ -150,12 +153,12 @@ export default function Experience() {
             <Hotspots />
             <Effects />
             <Ready />
-            <AdaptiveQuality />
+            {video ? <VideoDriver /> : <AdaptiveQuality />}
             {debug && <PerfProbe />}
           </Canvas>
         )}
       </div>
-      <ScrollDriver />
+      {!video && <ScrollDriver />}
       <Hud />
       <Loader />
       {debug && <DebugPanel />}

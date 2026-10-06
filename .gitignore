@@ -44,3 +44,6 @@ next-env.d.ts
 /raw-models
 /.next-build/
 /.claude/
+
+# rendered videos
+/video

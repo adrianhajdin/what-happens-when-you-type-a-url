@@ -97,7 +97,6 @@ button {
 
 .hud-stage {
   max-width: 460px;
-  animation: hud-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 @keyframes hud-in {
   from {
@@ -443,4 +442,23 @@ button {
     white-space: nowrap;
     bottom: calc(var(--gutter) + 40px);
   }
+}
+
+/* -------------------------------- ?video ------------------------------- */
+/* Recorded frame by frame on a virtual clock: nothing may animate on wall time. */
+
+.is-video .hud-hint,
+.is-video .hud-hotspot-tip,
+.is-video .hud-orbit,
+.is-video .hud-card {
+  display: none;
+}
+.is-video *,
+.is-video *::before,
+.is-video *::after {
+  animation: none !important;
+  transition: none !important;
+}
+.is-video .canvas-wrap {
+  cursor: none;
 }

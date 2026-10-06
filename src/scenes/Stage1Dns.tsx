@@ -9,7 +9,7 @@ import { FlowLine } from "@/core/FlowLine";
 import { COLORS, HEX } from "@/core/materials";
 import { cameraPath, type StageModule } from "@/core/types";
 import { STAGES, stageT } from "@/lib/stages";
-import { TARGET_HOST, TARGET_IP } from "@/lib/journey";
+import { TARGET_HOST, TARGET_IP, TARGET_NS } from "@/lib/journey";
 import { Chain, arc, remap, type Vec3 } from "@/lib/math";
 import { store } from "@/lib/store";
 
@@ -19,7 +19,7 @@ const TOWERS = {
   resolver: { pos: [-14, 0, -48] as Vec3, h: 10, w: 4, name: "RECURSIVE RESOLVER", sub: "your ISP · 1.1.1.1 style" },
   root: { pos: [-2, 0, -72] as Vec3, h: 34, w: 8, name: "ROOT  ( . )", sub: "a–m.root-servers.net" },
   tld: { pos: [12, 0, -64] as Vec3, h: 20, w: 6, name: ".COM TLD", sub: "a.gtld-servers.net" },
-  auth: { pos: [22, 0, -50] as Vec3, h: 15, w: 5, name: "AUTHORITATIVE", sub: "ns1.vercel-dns.com" },
+  auth: { pos: [22, 0, -50] as Vec3, h: 15, w: 5, name: "AUTHORITATIVE", sub: TARGET_NS },
 };
 type TowerId = keyof typeof TOWERS;
 
@@ -40,7 +40,7 @@ const LEGS: { from: THREE.Vector3; to: THREE.Vector3; h: number; text: string; a
   { from: top("resolver"), to: top("root"), h: 8, text: `A? ${TARGET_HOST}`, answer: false },
   { from: top("root"), to: top("resolver"), h: 8, text: "→ ask .com: a.gtld-servers.net", answer: true },
   { from: top("resolver"), to: top("tld"), h: 9, text: `A? ${TARGET_HOST}`, answer: false },
-  { from: top("tld"), to: top("resolver"), h: 9, text: "→ ask ns1.vercel-dns.com", answer: true },
+  { from: top("tld"), to: top("resolver"), h: 9, text: `→ ask ${TARGET_NS}`, answer: true },
   { from: top("resolver"), to: top("auth"), h: 10, text: `A? ${TARGET_HOST}`, answer: false },
   { from: top("auth"), to: top("resolver"), h: 10, text: `A ${TARGET_IP}  TTL 60`, answer: true },
   { from: top("resolver"), to: CLIENT_END, h: 5, text: `${TARGET_IP}`, answer: true },
@@ -50,7 +50,8 @@ const HOP_START = 0.04;
 const HOP_END = 0.9;
 
 /** What the resolver has cached after each leg (caching is the point of a resolver). */
-const CACHE_AFTER = [[], [], [".com  NS  ✓"], [".com  NS  ✓"], [".com  NS  ✓", "vercel.com  NS  ✓"], [".com  NS  ✓", "vercel.com  NS  ✓"], [".com  NS  ✓", "vercel.com  NS  ✓", "vercel.com  A  ✓"]];
+const NS_ROW = `${TARGET_HOST}  NS  ✓`;
+const CACHE_AFTER = [[], [], [".com  NS  ✓"], [".com  NS  ✓"], [".com  NS  ✓", NS_ROW], [".com  NS  ✓", NS_ROW], [".com  NS  ✓", NS_ROW, `${TARGET_HOST}  A  ✓`]];
 
 function Scene() {
   const label = useRef<DynamicLabelHandle>(null);

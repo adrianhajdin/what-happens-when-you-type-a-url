@@ -13,10 +13,12 @@ export type Hop = LatLng & {
   detail: string;
 };
 
-/** The domain the visitor "types". One constant so the open item (vercel.com vs own domain) is a one-line change. */
-export const TARGET_HOST = "vercel.com";
-/** A record the DNS stage returns (vercel.com's anycast address). */
-export const TARGET_IP = "76.76.21.21";
+/** The domain the visitor "types". Change these three together (values from `dig`, Oct 2026). */
+export const TARGET_HOST = "jsmastery.com";
+/** A record the DNS stage returns (Vercel anycast address serving jsmastery.com). */
+export const TARGET_IP = "216.150.1.1";
+/** Authoritative nameserver for the zone (GoDaddy DNS). */
+export const TARGET_NS = "ns53.domaincontrol.com";
 
 export const HOPS = {
   rijeka: { id: "rijeka", name: "Rijeka", detail: "You, on a home connection", lat: 45.327, lng: 14.442 },

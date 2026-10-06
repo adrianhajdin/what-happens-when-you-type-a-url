@@ -67,7 +67,9 @@ function Marker({ id, position }: { id: string; position: [number, number, numbe
 /** Clickable markers for the active stage, data-driven from stages.ts. */
 export function Hotspots() {
   const stage = useStore((s) => s.stage);
+  const video = useStore((s) => s.video);
   const list = useMemo(() => HOTSPOTS.filter((h) => h.stage === stage), [stage]);
+  if (video) return null;
   return (
     <>
       {list.map((h) => (

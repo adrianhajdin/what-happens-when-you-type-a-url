@@ -16,6 +16,7 @@ export function Hud() {
   const ms = useRef<HTMLSpanElement>(null);
   const fill = useRef<HTMLDivElement>(null);
   const hint = useRef<HTMLDivElement>(null);
+  const stageText = useRef<HTMLDivElement>(null);
   const meta = STAGES[stage];
   const card = HOTSPOTS.find((h) => h.id === hotspot);
 
@@ -27,13 +28,19 @@ export function Hud() {
       if (ms.current) ms.current.textContent = Math.round(elapsedAt(loc)).toLocaleString("en");
       if (fill.current) fill.current.style.transform = `scaleY(${s.progress})`;
       if (hint.current) hint.current.style.opacity = s.progress < 0.01 ? "1" : "0";
+      // Stage copy dips out and back in around the midpoint of each fly-over.
+      // Driven by progress, not CSS time, so it is exact when scrubbing and in recorded video.
+      if (stageText.current) {
+        const k = loc.transitioning ? Math.min(1, Math.abs(loc.u - 0.5) * 3.2) : 1;
+        stageText.current.style.opacity = String(k * k * (3 - 2 * k));
+      }
     });
   }, []);
 
   return (
     <div className={`hud ${ready ? "is-ready" : ""}`}>
       <header className="hud-top">
-        <div className="hud-stage" key={stage}>
+        <div className="hud-stage" ref={stageText}>
           <div className="hud-kicker">
             <span className="hud-num">{String(stage + 1).padStart(2, "0")}</span>
             <span className="hud-of">/ {String(STAGES.length).padStart(2, "0")}</span>

@@ -24,7 +24,8 @@ export function Stage({ index, module }: { index: number; module: StageModule & 
   useEffect(() => {
     const urls = module.models ?? [];
     if (index >= active && index <= active + 2) urls.forEach((u) => useGLTF.preload(u));
-    if (index < active - 1 || index > active + 2) urls.forEach((u) => useGLTF.clear(u));
+    // (the video recorder preloads everything once and keeps it)
+    if (!store().video && (index < active - 1 || index > active + 2)) urls.forEach((u) => useGLTF.clear(u));
   }, [active, index, module]);
 
   useFrame(() => {
