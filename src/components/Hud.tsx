@@ -17,6 +17,7 @@ export function Hud() {
   const fill = useRef<HTMLDivElement>(null);
   const hint = useRef<HTMLDivElement>(null);
   const stageText = useRef<HTMLDivElement>(null);
+  const caption = useRef<HTMLDivElement>(null);
   const meta = STAGES[stage];
   const card = HOTSPOTS.find((h) => h.id === hotspot);
 
@@ -30,6 +31,13 @@ export function Hud() {
       if (hint.current) hint.current.style.opacity = s.progress < 0.01 ? "1" : "0";
       // Stage copy dips out and back in around the midpoint of each fly-over.
       // Driven by progress, not CSS time, so it is exact when scrubbing and in recorded video.
+      // caption: eases in once the stage starts, out before it ends (progress-driven, like the stage copy)
+      if (caption.current) {
+        const on = !loc.transitioning && STAGES[loc.index].caption ? Math.min(1, (loc.t - 0.04) / 0.06, (0.97 - loc.t) / 0.05) : 0;
+        const k = Math.max(0, Math.min(1, on));
+        caption.current.style.opacity = String(k);
+        caption.current.style.transform = `translate(-50%, ${(1 - k) * 10}px)`;
+      }
       if (stageText.current) {
         const k = loc.transitioning ? Math.min(1, Math.abs(loc.u - 0.5) * 3.2) : 1;
         stageText.current.style.opacity = String(k * k * (3 - 2 * k));
@@ -72,6 +80,15 @@ export function Hud() {
           </button>
         ))}
       </nav>
+
+      <div className="hud-caption" ref={caption} style={{ opacity: 0 }}>
+        {meta.caption && (
+          <>
+            <strong>{meta.caption.title}</strong>
+            <span>{meta.caption.body}</span>
+          </>
+        )}
+      </div>
 
       <div className="hud-hint" ref={hint}>
         <span>scroll to send the request</span>

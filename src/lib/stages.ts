@@ -25,6 +25,8 @@ export type StageMeta = {
   /** Optional non-linear mapping local t → 0..1 of the elapsed range. */
   elapsedCurve?: (t: number) => number;
   hotspots: Hotspot[];
+  /** Lower-third burned into the frame while the stage is on screen (survives reposts without the post text). */
+  caption?: { title: string; body: string };
 };
 
 const b = BUDGET;
@@ -195,6 +197,10 @@ export const STAGES: StageMeta[] = [
     elapsedCurve: (t) => {
       const k = b.ocean / (b.ocean + b.origin + b.back);
       return t < 0.92 ? (t / 0.92) * k : k + ((t - 0.92) / 0.08) * (1 - k);
+    },
+    caption: {
+      title: "This run: cache MISS → origin in the US (iad1)",
+      body: "A cache HIT is answered in Frankfurt and never crosses the ocean.",
     },
     hotspots: [],
   },

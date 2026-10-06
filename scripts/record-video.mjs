@@ -33,7 +33,7 @@ const CHROME = arg("chrome", "/Applications/Google Chrome.app/Contents/MacOS/Goo
 // Seconds on screen per stage, and per fly-over between stages.
 const HEAD = 2.2; // hold on the empty address bar
 const STAGE_S = [6.5, 8.5, 5.5, 8.0, 5.5, 11.0, 10.0]; // URL, DNS, TCP, TLS, Edge, Ocean, Render
-const FLY_S = [1.6, 1.8, 1.4, 1.8, 3.0, 3.0]; // the two globe flights are long
+const FLY_S = [1.6, 1.8, 1.4, 1.8, 3.0, 1.0]; // up to the globe is a moment; back down is a quick drop
 const TAIL = 4.0; // hold on "1.2 s. That's what just happened."
 
 /** Monotone cubic (Fritsch–Carlson): smooth speed changes, never scrolls backwards, flat on holds. */

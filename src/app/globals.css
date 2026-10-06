@@ -339,6 +339,37 @@ button {
   border-radius: 6px;
 }
 
+/* a lower-third burned into the frame (see StageMeta.caption) */
+.hud-caption {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--gutter) + 44px);
+  transform: translate(-50%, 10px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--gutter));
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: rgba(6, 8, 20, 0.78);
+  border: 1px solid rgba(232, 121, 249, 0.45);
+  box-shadow: 0 0 30px rgba(232, 121, 249, 0.15);
+  text-align: center;
+  backdrop-filter: blur(8px);
+}
+.hud-caption strong {
+  font-family: var(--font-mono), monospace;
+  font-size: clamp(13px, 1.5vw, 18px);
+  font-weight: 700;
+  color: #fff;
+}
+.hud-caption span {
+  font-size: clamp(12px, 1.25vw, 15px);
+  color: var(--dim);
+}
+
 /* -------------------------------- loader ------------------------------- */
 
 .loader {
@@ -461,4 +492,11 @@ button {
 }
 .is-video .canvas-wrap {
   cursor: none;
+}
+/* the video is watched on phones: scale the whole HUD up so captions survive the feed */
+.is-video .hud {
+  zoom: 1.55;
+}
+.is-video .hud-concept {
+  max-width: 34ch;
 }

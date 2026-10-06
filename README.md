@@ -56,7 +56,7 @@ npm run build && npm start
 npm run record
 ```
 
-This writes `video/journey-1080p60.mp4` (~74 s, H.264, X/Twitter-ready). Pacing per stage lives at the top of `scripts/record-video.mjs`; `--width 1080 --height 1350` gives a 4:5 cut, `--from/--to` renders part of it.
+This writes `video/journey-1080p60.mp4` (~72 s, H.264, X/Twitter-ready). Pacing per stage lives at the top of `scripts/record-video.mjs`; `--width 1080 --height 1350` gives a 4:5 cut, `--from/--to` renders part of it.
 
 ## How it's built
 
