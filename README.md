@@ -12,7 +12,7 @@ Click the address bar (or just start typing) and enter any URL, or share a link 
 
 - **DNS:** A record, TTL, authoritative nameserver, and the TLD's servers (`/api/trace`, Node).
 - **TLS:** protocol, negotiated cipher and certificate chain, from a real handshake (`/api/trace`).
-- **CDN edge:** provider, the point of presence near *you*, and the cache status, read from response headers by `/api/probe`. It runs as an edge function in the region closest to the visitor, so it reaches the same PoP their browser would. Vercel, Cloudflare, CloudFront, Fastly, Netlify and Akamai are recognised; the raw headers are shown in the edge stage's info card.
+- **CDN edge:** provider, the point of presence near *you*, and the cache status, read from response headers by `/api/probe`. It runs in five Vercel regions (Frankfurt, Washington, San Francisco, Mumbai, Singapore) and each visitor is routed to the nearest, so the PoP it reaches is close to the one their own browser uses. Vercel, Cloudflare, CloudFront, Fastly, Netlify and Akamai are recognised; the raw headers are shown in the edge stage's info card.
 - **Origin:** placed on the globe when the provider reveals it (Vercel's function region); otherwise the map says so instead of guessing.
 - **Timing:** the elapsed counter is an estimate from great-circle distances (light in fibre ≈ 200 km/ms, ×1.4 for real routes), marked `≈`.
 
