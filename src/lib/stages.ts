@@ -1,4 +1,4 @@
-import { BUDGET, TARGET_HOST, TARGET_IP, TARGET_NS } from "./journey";
+import { BUDGET } from "./journey";
 import type { Vec3 } from "./math";
 import { clamp01 } from "./math";
 
@@ -29,16 +29,8 @@ export type StageMeta = {
   caption?: { title: string; body: string };
 };
 
-const b = BUDGET;
-const t0 = 0;
-const t1 = t0 + b.caches;
-const t2 = t1 + b.dns;
-const t3 = t2 + b.tcp;
-const t4 = t3 + b.tls;
-const t5 = t4 + b.edge;
-const t6 = t5 + b.ocean + b.origin + b.back;
-const t7 = t6 + b.render;
-
+/** Current latency budget (ms per phase). Swapped by setBudget() when a live trace loads. */
+let b = { ...BUDGET };
 export const STAGES: StageMeta[] = [
   {
     id: "url",
@@ -47,13 +39,13 @@ export const STAGES: StageMeta[] = [
     concept: "Before touching the network, the browser checks every cache it owns.",
     duration: 1.3,
     fog: 0.016,
-    elapsed: [t0, t1],
+    elapsed: [0, 0],
     hotspots: [
       {
         id: "url-bar",
         position: [-6.4, 9.9, 0.4],
         title: "Parsing what you typed",
-        body: `The browser decides whether "${TARGET_HOST}" is a search or a URL, adds https:// (or upgrades via its HSTS preload list), and only then starts looking things up.`,
+        body: `The browser decides whether "{host}" is a search or a URL, adds https:// (or upgrades via its HSTS preload list), and only then starts looking things up.`,
       },
       {
         id: "url-browser-cache",
@@ -73,10 +65,10 @@ export const STAGES: StageMeta[] = [
     id: "dns",
     title: "DNS: finding the address",
     short: "DNS",
-    concept: `Recursive resolution: four servers turn "${TARGET_HOST}" into ${TARGET_IP}.`,
+    concept: `Recursive resolution: four servers turn "{host}" into {ip}.`,
     duration: 1.8,
     fog: 0.011,
-    elapsed: [t1, t2],
+    elapsed: [0, 0],
     hotspots: [
       {
         id: "dns-resolver",
@@ -88,19 +80,19 @@ export const STAGES: StageMeta[] = [
         id: "dns-root",
         position: [-2, 37, -72],
         title: "Root servers",
-        body: `13 named root servers (a–m.root-servers.net), hundreds of anycast instances. They don't know ${TARGET_HOST}. They only know who runs .com.`,
+        body: `13 named root servers (a–m.root-servers.net), hundreds of anycast instances. They don't know {host}. They only know who runs .{tld}.`,
       },
       {
         id: "dns-tld",
         position: [12, 22.5, -64],
         title: ".com TLD servers",
-        body: `Operated by Verisign. They answer with the authoritative nameservers for ${TARGET_HOST} (${TARGET_NS}), not the address itself.`,
+        body: `The registry for .{tld} ({tldNs}). It answers with the authoritative nameservers for {host} ({ns}), not the address itself.`,
       },
       {
         id: "dns-auth",
         position: [22, 17.5, -50],
         title: "Authoritative nameserver",
-        body: `The source of truth for the zone. It returns the A record: ${TARGET_IP}, with a TTL saying how long resolvers may cache it.`,
+        body: `The source of truth for the zone. It returns the A record: {ip}, with a TTL saying how long resolvers may cache it.`,
       },
     ],
   },
@@ -111,7 +103,7 @@ export const STAGES: StageMeta[] = [
     concept: "Three packets agree on sequence numbers before a single byte of data moves.",
     duration: 1.1,
     fog: 0.01,
-    elapsed: [t2, t3],
+    elapsed: [0, 0],
     hotspots: [
       {
         id: "tcp-client",
@@ -122,8 +114,8 @@ export const STAGES: StageMeta[] = [
       {
         id: "tcp-server",
         position: [19, 19.5, -150],
-        title: `${TARGET_IP}:443`,
-        body: "An anycast address: the same IP is announced from many cities, and BGP routes you to the nearest, Frankfurt. It answers SYN-ACK with its own sequence number.",
+        title: `{ip}:443`,
+        body: "Behind a CDN this is usually an anycast address: the same IP is announced from many cities, and BGP routes you to the nearest one ({edge}). It answers SYN-ACK with its own sequence number.",
       },
     ],
   },
@@ -134,7 +126,7 @@ export const STAGES: StageMeta[] = [
     concept: "One round trip: agree on a cipher, prove identity, derive keys. Then everything is encrypted.",
     duration: 1.5,
     fog: 0.01,
-    elapsed: [t3, t4],
+    elapsed: [0, 0],
     hotspots: [
       {
         id: "tls-ciphers",
@@ -163,13 +155,13 @@ export const STAGES: StageMeta[] = [
     concept: "Edges exist so most requests never cross an ocean. This one is a cache MISS.",
     duration: 1.2,
     fog: 0.007,
-    elapsed: [t4, t5],
+    elapsed: [0, 0],
     hotspots: [
       {
         id: "edge-pop",
         position: [0, 26, -240],
-        title: "Edge PoP · Frankfurt",
-        body: "Anycast landed you here, peering at DE-CIX, one of the busiest internet exchanges on Earth. Static assets and cached pages are served from here in a few ms.",
+        title: "Edge PoP · {edge}",
+        body: "Anycast landed you at {provider}'s location in {edge}. Static assets and cached pages are served from here in a few milliseconds.",
       },
       {
         id: "edge-hit",
@@ -181,7 +173,7 @@ export const STAGES: StageMeta[] = [
         id: "edge-miss",
         position: [0, 9, -258],
         title: "The MISS path",
-        body: "Nothing cached (or it expired), so the edge forwards the request to the origin, which lives in Ashburn, Virginia. Across the Atlantic.",
+        body: "Nothing fresh cached (or the page isn't cacheable), so the edge forwards the request to the origin server.",
       },
     ],
   },
@@ -192,15 +184,11 @@ export const STAGES: StageMeta[] = [
     concept: "The internet is physical: your request rides a fibre on the seabed. ~80 ms there and back.",
     duration: 2.2,
     fog: 0,
-    elapsed: [t5, t6],
+    elapsed: [0, 0],
     // Outbound crossing is ~20% of the stage's time budget; origin render + return fill the last 8% of scroll.
     elapsedCurve: (t) => {
-      const k = b.ocean / (b.ocean + b.origin + b.back);
+      const k = b.ocean / Math.max(1, b.ocean + b.origin + b.back);
       return t < 0.92 ? (t / 0.92) * k : k + ((t - 0.92) / 0.08) * (1 - k);
-    },
-    caption: {
-      title: "This run: cache MISS → origin in the US (iad1)",
-      body: "A cache HIT is answered in Frankfurt and never crosses the ocean.",
     },
     hotspots: [],
   },
@@ -211,7 +199,7 @@ export const STAGES: StageMeta[] = [
     concept: "HTML streams back, the DOM and CSSOM grow, and the page assembles: the critical rendering path.",
     duration: 2.0,
     fog: 0.009,
-    elapsed: [t6, t7],
+    elapsed: [0, 0],
     hotspots: [
       {
         id: "render-dom",
@@ -307,3 +295,15 @@ export function elapsedAt(loc: Loc) {
   const k = s.elapsedCurve ? s.elapsedCurve(loc.t) : loc.t;
   return s.elapsed[0] + (s.elapsed[1] - s.elapsed[0]) * k;
 }
+
+/** Recompute every stage's elapsed-ms range from a budget (example or live trace). */
+export function setBudget(next: typeof BUDGET) {
+  b = { ...next };
+  const marks = [0, b.caches, b.dns, b.tcp, b.tls, b.edge, b.ocean + b.origin + b.back, b.render];
+  let acc = 0;
+  STAGES.forEach((s, i) => {
+    acc += marks[i];
+    s.elapsed = [acc, acc + marks[i + 1]];
+  });
+}
+setBudget(BUDGET);

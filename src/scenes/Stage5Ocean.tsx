@@ -12,7 +12,9 @@ import type { CameraKey, CameraPose, StageModule } from "@/core/types";
 import { STAGES, stageT } from "@/lib/stages";
 import { BUDGET, DUNANT, HOPS, LEGS, OTHER_CABLES, type LatLng } from "@/lib/journey";
 import { remap, smooth } from "@/lib/math";
-import { useStore, store } from "@/lib/store";
+import { useJourney, useStore, store } from "@/lib/store";
+import { budgetFor, goesToOrigin, isHit, nearEnd, type Journey } from "@/lib/live";
+import { km, oneWayMs, type Place } from "@/lib/places";
 
 const INDEX = 5;
 const R = GLOBE_R;
@@ -39,25 +41,36 @@ function densify(points: P[], steps: number) {
   return out;
 }
 
-const routeLL: P[] = [
-  { ...HOPS.frankfurt, alt: LAND_ALT },
-  { ...HOPS.paris, alt: LAND_ALT },
-  { ...HOPS.sthilaire, alt: SEA_ALT },
-  ...DUNANT.slice(1).map((p) => ({ ...p, alt: SEA_ALT })),
-  { ...HOPS.ashburn, alt: LAND_ALT },
-];
-const ROUTE = new THREE.CatmullRomCurve3(densify(routeLL, 10), false, "centripetal");
-/** Fraction of arc length at which each leg ends (for the latency readout). */
-const LEG_ENDS = (() => {
-  const total = ROUTE.getLength();
-  const lens = ROUTE.getLengths(2000);
-  const at = (ll: LatLng) => {
+type Marker = { ll: LatLng; text: string; sub: string; color: string; lift: number; you?: boolean };
+type Shot = { at: THREE.Vector3; height: number; back: number };
+
+/** Everything the globe stage draws and frames for one journey. */
+type RouteModel = {
+  example: boolean;
+  curve: THREE.CatmullRomCurve3;
+  /** Fraction of arc length at which each leg ends. */
+  legEnds: number[];
+  legs: { km: number; ms: number; label?: string }[];
+  msTotal: number;
+  start: Shot;
+  end: Shot;
+  /** 0 = stay on the overview (short routes), 1 = ride along with the packet. */
+  follow: number;
+  markers: Marker[];
+  /** What the readout says once the packet has arrived. */
+  arrival: string;
+};
+
+function legEndsOf(curve: THREE.CatmullRomCurve3, stops: LatLng[]) {
+  const total = curve.getLength();
+  const lens = curve.getLengths(2000);
+  const v = new THREE.Vector3();
+  return stops.map((ll) => {
     const target = latLngToWorld(ll.lat, ll.lng, R);
     let best = 0;
     let bd = Infinity;
-    const v = new THREE.Vector3();
     for (let i = 0; i <= 2000; i++) {
-      ROUTE.getPoint(i / 2000, v);
+      curve.getPoint(i / 2000, v);
       const d = v.distanceToSquared(target);
       if (d < bd) {
         bd = d;
@@ -65,10 +78,89 @@ const LEG_ENDS = (() => {
       }
     }
     return lens[best] / total;
+  });
+}
+
+function exampleRoute(): RouteModel {
+  const ll: P[] = [
+    { ...HOPS.frankfurt, alt: LAND_ALT },
+    { ...HOPS.paris, alt: LAND_ALT },
+    { ...HOPS.sthilaire, alt: SEA_ALT },
+    ...DUNANT.slice(1).map((p) => ({ ...p, alt: SEA_ALT })),
+    { ...HOPS.ashburn, alt: LAND_ALT },
+  ];
+  const curve = new THREE.CatmullRomCurve3(densify(ll, 10), false, "centripetal");
+  const ends = legEndsOf(curve, [HOPS.paris, HOPS.sthilaire, HOPS.virginiaBeach]);
+  return {
+    example: true,
+    curve,
+    legEnds: [...ends, 1],
+    legs: LEGS.map((l) => ({ km: l.km, ms: l.ms, label: "label" in l ? l.label : undefined })),
+    msTotal: LEGS.reduce((a, l) => a + l.ms, 0),
+    start: { at: latLngToWorld(41, -28, R), height: 210, back: 150 },
+    end: { at: latLngToWorld(38, -45, R), height: 190, back: 130 },
+    follow: 1,
+    markers: [
+      { ll: HOPS.frankfurt, text: "Frankfurt · edge", sub: "DE-CIX", color: HEX.cyan, lift: 1.13 },
+      { ll: HOPS.sthilaire, text: "Saint-Hilaire-de-Riez", sub: "Dunant landing · FR", color: "#eaffff", lift: 1.06 },
+      { ll: HOPS.virginiaBeach, text: "Virginia Beach", sub: "Dunant landing · US", color: "#eaffff", lift: 1.05 },
+      { ll: HOPS.ashburn, text: "Ashburn · origin iad1", sub: "Data Center Alley", color: HEX.magenta, lift: 1.14 },
+    ],
+    arrival: `origin renders  +${BUDGET.origin} ms  ·  then back  ~${BUDGET.back} ms`,
   };
-  return [at(HOPS.paris), at(HOPS.sthilaire), at(HOPS.virginiaBeach), 1];
-})();
-const MS_TOTAL = LEGS.reduce((a, l) => a + l.ms, 0);
+}
+
+/** A live trace: visitor → edge, or edge → origin when the request goes on. Great-circle legs. */
+function liveRoute(j: Journey): RouteModel {
+  const near = nearEnd(j);
+  const toOrigin = goesToOrigin(j) && j.pop && j.origin;
+  const from: Place = toOrigin ? j.pop! : j.visitor;
+  let to: Place = toOrigin ? j.origin! : (near ?? j.visitor);
+  if (km(from, to) < 30) to = { ...to, lat: to.lat + 0.25, lng: to.lng + 0.35 }; // same metro: keep a visible stub
+  const pts = densify([{ ...from, alt: LAND_ALT }, { ...to, alt: LAND_ALT }], 48);
+  const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
+  const dist = km(from, to);
+  const ms = Math.round(oneWayMs(from, to));
+  // frame the whole route: centre of the arc, pulled back with its angular size
+  const mid = curve.getPointAt(0.5, new THREE.Vector3()).sub(GLOBE_CENTER).setLength(R).add(GLOBE_CENTER);
+  const span = dist / 6371; // radians
+  const height = Math.min(260, Math.max(85, R * (0.55 + span * 1.5)));
+  const overview: Shot = { at: mid, height, back: height * 0.7 };
+  const b = budgetFor(j);
+  const markers: Marker[] = [{ ll: j.visitor, text: `you · ${j.visitor.city}`, sub: "approximate location", color: HEX.magenta, lift: 1.06, you: true }];
+  if (j.pop) markers.push({ ll: j.pop, text: `${j.provider} edge · ${j.pop.city}`, sub: j.pop.code ?? "", color: HEX.cyan, lift: 1.12 });
+  else if (!j.provider && j.origin) markers.push({ ll: j.origin, text: `server · ${j.origin.city}`, sub: j.ip, color: HEX.cyan, lift: 1.12 });
+  if (j.origin && j.provider && (!j.pop || km(j.pop, j.origin) > 30)) {
+    markers.push({ ll: j.origin, text: `origin · ${j.origin.city}`, sub: j.origin.code ?? "", color: HEX.magenta, lift: 1.15 });
+  }
+  return {
+    example: false,
+    curve,
+    legEnds: [1],
+    legs: [{ km: Math.round(dist), ms }],
+    msTotal: ms,
+    start: overview,
+    end: overview,
+    follow: dist > 1500 ? 1 : 0,
+    markers,
+    arrival: toOrigin
+      ? `origin renders  +${b.origin} ms  ·  then back  ~${b.back} ms`
+      : isHit(j)
+        ? `edge answers  ·  back to you  ~${b.back} ms`
+        : `arrived  ·  ${ms} ms one-way`,
+  };
+}
+
+const routes = new WeakMap<Journey, RouteModel>();
+/** Route for the current journey (cached; journeys are immutable). */
+function routeFor(j: Journey) {
+  let r = routes.get(j);
+  if (!r) {
+    r = j.kind === "example" ? exampleRoute() : liveRoute(j);
+    routes.set(j, r);
+  }
+  return r;
+}
 
 const TRAVEL = { from: 0.06, to: 0.9 };
 
@@ -93,24 +185,21 @@ function frame(surface: THREE.Vector3, height: number, back: number, ahead: numb
   outTarget.copy(GLOBE_CENTER).addScaledVector(cam.n, R).addScaledVector(cam.no, ahead);
 }
 
-const OVERVIEW = latLngToWorld(41, -28, R);
-const OVERVIEW_END = latLngToWorld(38, -45, R);
-
 function camera(t: number, out: CameraPose) {
+  const r = routeFor(store().journey);
   const u = remap(t, TRAVEL.from, TRAVEL.to);
-  ROUTE.getPointAt(Math.min(1, u), cam.p);
-  // follow close
-  frame(cam.p, 105, 70, 6, out.position, out.target);
-  // overview at the start, pulled-back at the end
-  const startW = 1 - smooth(remap(t, 0.02, 0.22));
-  const endW = smooth(remap(t, 0.86, 1));
-  if (startW > 0) {
-    frame(OVERVIEW, 210, 150, 0, cam.a, cam.b);
-    out.position.lerp(cam.a, startW);
-    out.target.lerp(cam.b, startW);
+  // the base shot: overview, or riding along with the packet on long routes
+  frame(r.start.at, r.start.height, r.start.back, 0, out.position, out.target);
+  if (r.follow > 0) {
+    r.curve.getPointAt(Math.min(1, u), cam.p);
+    frame(cam.p, 105, 70, 6, cam.a, cam.b);
+    const w = r.follow * smooth(remap(t, 0.02, 0.22)) * (1 - smooth(remap(t, 0.86, 1)));
+    out.position.lerp(cam.a, w);
+    out.target.lerp(cam.b, w);
   }
+  const endW = smooth(remap(t, 0.86, 1)) * r.follow;
   if (endW > 0) {
-    frame(OVERVIEW_END, 190, 130, 0, cam.a, cam.b);
+    frame(r.end.at, r.end.height, r.end.back, 0, cam.a, cam.b);
     out.position.lerp(cam.a, endW);
     out.target.lerp(cam.b, endW);
   }
@@ -240,24 +329,38 @@ function Globe() {
 
 /* -------------------------------- cables --------------------------------- */
 
-function Cables({ dunantRef }: { dunantRef: React.RefObject<THREE.Mesh | null> }) {
-  const { others, dunant, othersMat, dunantMat, land, landMat, repeaters } = useMemo(() => {
+/** The crowded Atlantic seabed: decorative neighbours, always shown. */
+function SeabedCables() {
+  const { geo, mat } = useMemo(() => {
     const tubes = OTHER_CABLES.map((c) => {
       const curve = new THREE.CatmullRomCurve3(routePoints(c.points, R * 1.002, 20));
       return new THREE.TubeGeometry(curve, 160, 0.16, 5, false);
     });
-    const others = mergeGeometries(tubes)!;
+    const geo = mergeGeometries(tubes)!;
     tubes.forEach((g) => g.dispose());
-    const othersMat = flowMaterial(hdr(new THREE.Color("#8b5cf6"), 1.4), { speed: 0.15, dash: 60, base: 0.7, opacity: 0.85 });
-    othersMat.fog = false;
+    const mat = flowMaterial(hdr(new THREE.Color("#8b5cf6"), 1.4), { speed: 0.15, dash: 60, base: 0.7, opacity: 0.85 });
+    mat.fog = false;
+    return { geo, mat };
+  }, []);
+  useEffect(
+    () => () => {
+      geo.dispose();
+      mat.dispose();
+    },
+    [geo, mat],
+  );
+  return <mesh geometry={geo} material={mat} />;
+}
+
+/** The scripted run: Dunant highlighted, its repeaters, and the European land legs. */
+function DunantRoute({ dunantRef }: { dunantRef: React.RefObject<THREE.Mesh | null> }) {
+  const { dunant, dunantMat, land, landMat, repeaters } = useMemo(() => {
     const dCurve = new THREE.CatmullRomCurve3(routePoints(DUNANT, R * 1.003, 14));
     const dunant = new THREE.TubeGeometry(dCurve, 300, 0.24, 6, false);
     const dunantMat = flowMaterial(hdr(COLORS.cyan, 1.4), { speed: 0.5, dash: 90, base: 0.9 });
     dunantMat.fog = false;
     // terrestrial legs Frankfurt → Paris → Saint-Hilaire, and the earlier Rijeka → Frankfurt hop
-    const landCurve = new THREE.CatmullRomCurve3(
-      routePoints([HOPS.rijeka, HOPS.frankfurt, HOPS.paris, HOPS.sthilaire], R * 1.004, 16).concat(),
-    );
+    const landCurve = new THREE.CatmullRomCurve3(routePoints([HOPS.rijeka, HOPS.frankfurt, HOPS.paris, HOPS.sthilaire], R * 1.004, 16));
     const land = new THREE.TubeGeometry(landCurve, 120, 0.16, 5, false);
     const landMat = flowMaterial(hdr(COLORS.magenta, 1.4), { speed: 0.4, dash: 40, base: 0.8 });
     landMat.fog = false;
@@ -270,21 +373,20 @@ function Cables({ dunantRef }: { dunantRef: React.RefObject<THREE.Mesh | null> }
       o.updateMatrix();
       rep.setMatrixAt(i, o.matrix);
     }
-    return { others, dunant, othersMat, dunantMat, land, landMat, repeaters: rep };
+    return { dunant, dunantMat, land, landMat, repeaters: rep };
   }, []);
   useEffect(
     () => () => {
-      [others, dunant, land].forEach((g) => g.dispose());
-      [othersMat, dunantMat, landMat].forEach((m) => m.dispose());
+      [dunant, land].forEach((g) => g.dispose());
+      [dunantMat, landMat].forEach((m) => m.dispose());
       repeaters.geometry.dispose();
       (repeaters.material as THREE.Material).dispose();
       repeaters.dispose();
     },
-    [others, dunant, land, othersMat, dunantMat, landMat, repeaters],
+    [dunant, land, dunantMat, landMat, repeaters],
   );
   return (
     <group>
-      <mesh geometry={others} material={othersMat} />
       <mesh ref={dunantRef} geometry={dunant} material={dunantMat} />
       <mesh geometry={land} material={landMat} />
       <primitive object={repeaters} />
@@ -292,77 +394,87 @@ function Cables({ dunantRef }: { dunantRef: React.RefObject<THREE.Mesh | null> }
   );
 }
 
-/* --------------------------------- scene --------------------------------- */
+/** A live trace's path as a glowing tube. */
+function LiveRoute({ route }: { route: RouteModel }) {
+  const { geo, mat } = useMemo(() => {
+    const geo = new THREE.TubeGeometry(route.curve, 160, 0.24, 6, false);
+    const mat = flowMaterial(hdr(COLORS.cyan, 1.4), { speed: 0.5, dash: 40, base: 0.9 });
+    mat.fog = false;
+    return { geo, mat };
+  }, [route]);
+  useEffect(
+    () => () => {
+      geo.dispose();
+      mat.dispose();
+    },
+    [geo, mat],
+  );
+  return <mesh geometry={geo} material={mat} />;
+}
 
-const CITY_LABELS: { ll: LatLng; text: string; sub: string; color: string; lift: number }[] = [
-  { ll: HOPS.frankfurt, text: "Frankfurt · edge", sub: "DE-CIX", color: HEX.cyan, lift: 1.13 },
-  { ll: HOPS.sthilaire, text: "Saint-Hilaire-de-Riez", sub: "Dunant landing · FR", color: "#eaffff", lift: 1.06 },
-  { ll: HOPS.virginiaBeach, text: "Virginia Beach", sub: "Dunant landing · US", color: "#eaffff", lift: 1.05 },
-  { ll: HOPS.ashburn, text: "Ashburn · origin iad1", sub: "Data Center Alley", color: HEX.magenta, lift: 1.14 },
-];
+/* --------------------------------- scene --------------------------------- */
 
 function Scene() {
   const origin = useStore((s) => s.origin);
+  const journey = useJourney();
+  const route = routeFor(journey);
   const readout = useRef<DynamicLabelHandle>(null);
-  const originLabel = useRef<DynamicLabelHandle>(null);
   const dunant = useRef<THREE.Mesh>(null);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const nrm = useMemo(() => new THREE.Vector3(), []);
   const last = useRef(-2);
+  useEffect(() => {
+    last.current = -2; // new journey: redraw the readout
+  }, [journey]);
 
   useFrame(() => {
+    const r = routeFor(store().journey);
     const t = stageT(INDEX, store().progress);
     const u = remap(t, TRAVEL.from, TRAVEL.to);
     const s = readout.current?.sprite;
     if (s) {
       s.visible = t > TRAVEL.from - 0.01 && t < 0.97;
-      ROUTE.getPointAt(Math.min(1, u), tmp);
+      r.curve.getPointAt(Math.min(1, u), tmp);
       nrm.subVectors(tmp, GLOBE_CENTER).normalize();
       s.position.copy(tmp).addScaledVector(nrm, 7);
       let leg = 0;
-      while (leg < LEG_ENDS.length - 1 && u > LEG_ENDS[leg]) leg++;
-      const ms = Math.round(u * MS_TOTAL);
+      while (leg < r.legEnds.length - 1 && u > r.legEnds[leg]) leg++;
+      const ms = Math.round(u * r.msTotal);
       // only rebuild the string when the number on screen changes
       const key = t >= TRAVEL.to ? -1 : ms * 10 + leg;
       if (key !== last.current) {
         last.current = key;
-        const L = LEGS[leg];
-        if (key === -1) readout.current!.setText(`origin renders  +${BUDGET.origin} ms  ·  then back  ~${BUDGET.back} ms`);
-        else readout.current!.setText(`${ms} ms one-way  ·  ${"label" in L ? `${L.label} · ${L.km.toLocaleString("en")} km` : `${L.km} km fibre`}`);
+        const L = r.legs[leg];
+        if (key === -1) readout.current!.setText(r.arrival);
+        else readout.current!.setText(`${ms} ms one-way  ·  ${L.label ? `${L.label} · ` : ""}${L.km.toLocaleString("en")} km`);
       }
     }
-    if (dunant.current) {
+    if (dunant.current && r.example) {
       const m = dunant.current.material as THREE.ShaderMaterial;
-      m.uniforms.uBase.value = 0.6 + 1.2 * remap(u, LEG_ENDS[1], LEG_ENDS[1] + 0.05) * (1 - remap(u, LEG_ENDS[2], LEG_ENDS[2] + 0.1) * 0.5);
+      m.uniforms.uBase.value = 0.6 + 1.2 * remap(u, r.legEnds[1], r.legEnds[1] + 0.05) * (1 - remap(u, r.legEnds[2], r.legEnds[2] + 0.1) * 0.5);
     }
   });
 
-  useEffect(() => {
-    originLabel.current?.setText(origin.geolocated ? `you · ${origin.city}` : `you · ${origin.city}`);
-  }, [origin]);
-
-  const originPos = useMemo(() => latLngToWorld(origin.lat, origin.lng, R * 1.01), [origin]);
+  // the example shows the geolocated visitor separately; live markers include the visitor
+  const markers = route.example ? [...route.markers, { ll: origin, text: `you · ${origin.city}`, sub: "", color: HEX.magenta, lift: 1.06, you: true }] : route.markers;
   const glow = glowTexture();
   return (
     <group>
       <Globe />
-      <Cables dunantRef={dunant} />
-      {CITY_LABELS.map((c) => {
+      <SeabedCables />
+      {route.example ? <DunantRoute dunantRef={dunant} /> : <LiveRoute route={route} />}
+      {markers.map((c) => {
         const p = latLngToWorld(c.ll.lat, c.ll.lng, R * 1.006);
         const lp = latLngToWorld(c.ll.lat, c.ll.lng, R * c.lift);
         return (
           <group key={c.text}>
             <sprite position={p} scale={[3.2, 3.2, 1]}>
-              <spriteMaterial map={glow} color={[3, 3, 3.4]} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} fog={false} />
+              <spriteMaterial map={glow} color={c.you ? hdr(COLORS.magenta, 3) : new THREE.Color(3, 3, 3.4)} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} fog={false} />
             </sprite>
-            <Label text={c.text} sub={[c.sub]} position={lp} size={1.9} color={c.color} bg="rgba(4,6,16,0.75)" border="rgba(120,180,255,0.35)" weight={700} />
+            <Label text={c.text} sub={c.sub ? [c.sub] : undefined} position={lp} size={c.you ? 1.6 : 1.9} color={c.color} bg={c.you ? undefined : "rgba(4,6,16,0.75)"} border={c.you ? undefined : "rgba(120,180,255,0.35)"} weight={700} />
           </group>
         );
       })}
-      <sprite position={originPos} scale={[3, 3, 1]}>
-        <spriteMaterial map={glow} color={hdr(COLORS.magenta, 3)} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} fog={false} />
-      </sprite>
-      <DynamicLabel ref={originLabel} initial={`you · ${origin.city}`} position={latLngToWorld(origin.lat, origin.lng, R * 1.06)} size={1.6} color={HEX.magenta} weight={700} />
       <DynamicLabel ref={readout} size={2.2} color="#eaffff" bg="rgba(4,8,20,0.85)" border={HEX.cyan} weight={700} />
     </group>
   );
@@ -376,10 +488,11 @@ export const Stage5Ocean: StageModule & { id: string } = {
   camera,
   duration: STAGES[INDEX].duration,
   packet(t, out) {
+    const r = routeFor(store().journey);
     out.visible = true;
     out.scale = 1.8;
     const u = remap(t, TRAVEL.from, TRAVEL.to);
-    ROUTE.getPointAt(Math.min(1, u), out.position);
+    r.curve.getPointAt(Math.min(1, u), out.position);
     if (t > 0.97) out.scale = 1.8 * (1 - remap(t, 0.97, 1) * 0.6);
   },
 };

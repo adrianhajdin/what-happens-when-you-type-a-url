@@ -6,7 +6,21 @@ A scroll-driven 3D journey of a single request to jsmastery.com: from your addre
 
 ![Stage 5: the packet on the Dunant cable](design/s5.png)
 
-## The route
+## Trace any site
+
+Click the address bar (or just start typing) and enter any URL, or share a link like `/?url=github.com`. Every stage then uses that site's real data:
+
+- **DNS:** A record, TTL, authoritative nameserver, and the TLD's servers (`/api/trace`, Node).
+- **TLS:** protocol, negotiated cipher and certificate chain, from a real handshake (`/api/trace`).
+- **CDN edge:** provider, the point of presence near *you*, and the cache status, read from response headers by `/api/probe`. It runs as an edge function in the region closest to the visitor, so it reaches the same PoP their browser would. Vercel, Cloudflare, CloudFront, Fastly, Netlify and Akamai are recognised; the raw headers are shown in the edge stage's info card.
+- **Origin:** placed on the globe when the provider reveals it (Vercel's function region); otherwise the map says so instead of guessing.
+- **Timing:** the elapsed counter is an estimate from great-circle distances (light in fibre ≈ 200 km/ms, ×1.4 for real routes), marked `≈`.
+
+Safety: only public hostnames are accepted; every resolved address must be public; the TLS check is pinned to the IP that was validated; the probe sends one GET to `/` without following redirects; everything times out within 5 s.
+
+The landing page still plays the scripted example run (labelled "example run" in the HUD).
+
+## The route (example run)
 
 Rijeka → Frankfurt edge (DE-CIX) → **MISS** → Paris → Saint-Hilaire-de-Riez → **Dunant cable** (≈6,400 km, ≈33 ms one-way) → Virginia Beach → origin in Ashburn.
 

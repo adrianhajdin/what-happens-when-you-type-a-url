@@ -9,11 +9,40 @@ import { Label } from "@/core/Label";
 import { COLORS, HEX, glowTexture, hdr } from "@/core/materials";
 import { cameraPath, type StageModule } from "@/core/types";
 import { STAGES, stageT } from "@/lib/stages";
-import { TARGET_HOST } from "@/lib/journey";
+import { isHit, type Journey } from "@/lib/live";
 import { remap, easeInOut } from "@/lib/math";
-import { store } from "@/lib/store";
+import { store, useJourney } from "@/lib/store";
 
 const INDEX = 4;
+
+/** hit: the edge answers · miss: the edge forwards to the origin · origin: no CDN, this building is the server */
+type Mode = "hit" | "miss" | "origin";
+const modeOf = (j: Journey): Mode => (!j.provider ? "origin" : isHit(j) ? "hit" : "miss");
+
+const GREEN = "#7dffb0";
+const AMBER = "#ffc56b";
+
+function copyOf(j: Journey) {
+  const mode = modeOf(j);
+  const title =
+    j.kind === "example"
+      ? { text: "EDGE PoP  ·  fra1", sub: "Frankfurt  ·  peering at DE-CIX" }
+      : mode === "origin"
+        ? { text: `ORIGIN SERVER  ·  ${j.ip}`, sub: "no CDN in front of this site" }
+        : { text: `EDGE PoP  ·  ${j.pop?.code ?? "?"}`, sub: `${j.provider}  ·  ${j.pop?.city ?? "location not disclosed"}` };
+  const verdict =
+    mode === "origin"
+      ? { text: "no cache in front", sub: "the server builds the response itself", color: AMBER }
+      : mode === "hit"
+        ? { text: "cache  HIT", sub: "fresh copy here → straight back to you", color: GREEN }
+        : j.cache === "MISS"
+          ? { text: "cache  MISS", sub: "nothing fresh here → forward to origin", color: HEX.red }
+          : j.cache === "DYNAMIC"
+            ? { text: "not cacheable", sub: "dynamic page → forward to origin", color: AMBER }
+            : { text: "cache status hidden", sub: "assume it goes to the origin", color: AMBER };
+  const missLabel = j.origin ? `MISS → origin  ${j.origin.code ?? ""} · ${j.origin.city}` : "→ origin  (location not public)";
+  return { mode, title, verdict, missLabel: j.kind === "example" ? "MISS → origin  iad1 · Ashburn, VA" : missLabel };
+}
 const FZ = -240;
 const FRONT = new THREE.Vector3(0, 1.2, FZ + 8.5);
 const BACK = new THREE.Vector3(0, 1.2, FZ - 8.5);
@@ -97,12 +126,16 @@ function Scene() {
   const doors = useRef<(THREE.Mesh | null)[]>([]);
   const [phase, setPhase] = useState(0);
   const phaseRef = useRef(0);
+  const journey = useJourney();
+  const copy = useMemo(() => copyOf(journey), [journey]);
+  const mode = copy.mode;
 
   useFrame(() => {
     const t = stageT(INDEX, store().progress);
+    const m = modeOf(store().journey);
     setReveal(inLine.current, remap(t, 0, BEAT.arrive));
-    setReveal(hitLine.current, remap(t, BEAT.hitFrom, BEAT.hitTo));
-    setReveal(missLine.current, remap(t, BEAT.gateTo, 1));
+    setReveal(hitLine.current, m === "origin" ? 0 : m === "hit" ? remap(t, BEAT.through, 1) /* drawn as the answer travels */ : remap(t, BEAT.hitFrom, BEAT.hitTo));
+    setReveal(missLine.current, m === "miss" ? remap(t, BEAT.gateTo, 1) : 0);
     const su = remap(t, BEAT.scanFrom, BEAT.scanTo);
     if (scan.current) {
       scan.current.visible = su > 0 && su < 1;
@@ -110,7 +143,7 @@ function Scene() {
       const k = 1 + Math.sin(su * Math.PI) * 0.08;
       scan.current.scale.set(k, k, 1);
     }
-    const g = easeInOut(remap(t, BEAT.gateFrom, BEAT.gateTo));
+    const g = m === "miss" ? easeInOut(remap(t, BEAT.gateFrom, BEAT.gateTo)) : 0;
     for (let i = 0; i < doors.current.length; i++) {
       const d = doors.current[i];
       if (d) d.position.x = (i === 0 ? -1 : 1) * (1.6 + g * 3.2);
@@ -135,39 +168,50 @@ function Scene() {
           position={[0, 3.5, FZ - 6.7]}
         >
           <boxGeometry args={[3.2, 7, 0.3]} />
-          <meshBasicMaterial color={phase >= 3 ? hdr(COLORS.cyan, 1.8) : hdr(COLORS.red, 1.8)} toneMapped={false} />
+          <meshBasicMaterial color={phase >= 3 && mode === "miss" ? hdr(COLORS.cyan, 1.8) : hdr(COLORS.red, 1.8)} toneMapped={false} />
         </mesh>
       ))}
       <FlowLine ref={inLine} curve={IN_PATH} color={COLORS.cyan} radius={0.08} segments={40} reveal={0} />
-      <FlowLine ref={hitLine} curve={HIT_PATH} color={COLORS.magenta} radius={0.07} segments={40} opacity={0.45} base={0.3} reveal={0} />
+      <FlowLine
+        key={mode}
+        ref={hitLine}
+        curve={HIT_PATH}
+        color={mode === "hit" ? COLORS.cyan : COLORS.magenta}
+        radius={mode === "hit" ? 0.1 : 0.07}
+        segments={40}
+        opacity={mode === "hit" ? 1 : 0.45}
+        base={mode === "hit" ? 0.8 : 0.3}
+        reveal={0}
+      />
       <FlowLine ref={missLine} curve={MISS_PATH} color={COLORS.cyan} radius={0.1} segments={96} dash={30} speed={1.2} reveal={0} />
-      <Label text="EDGE PoP  ·  fra1" sub={["Frankfurt  ·  peering at DE-CIX"]} size={1.1} position={[0, 34, FZ]} weight={700} />
+      <Label text={copy.title.text} sub={[copy.title.sub]} size={1.1} position={[0, 34, FZ]} weight={700} />
       {phase >= 1 && (
         <Label
-          text={phase === 1 ? "cache lookup  GET /" : "cache  MISS"}
-          sub={phase === 1 ? [`key: ${TARGET_HOST}/  ·  checking…`] : ["nothing fresh here → forward to origin"]}
+          text={phase === 1 ? (mode === "origin" ? "GET /" : "cache lookup  GET /") : copy.verdict.text}
+          sub={phase === 1 ? [`key: ${journey.host}/  ·  checking…`] : [copy.verdict.sub]}
           size={1.25}
           position={[-13, 13, FZ + 10]}
-          color={phase === 1 ? HEX.cyan : HEX.red}
+          color={phase === 1 ? HEX.cyan : copy.verdict.color}
           bg="rgba(6,8,20,0.88)"
-          border={phase === 1 ? HEX.cyan : HEX.red}
+          border={phase === 1 ? HEX.cyan : copy.verdict.color}
           weight={700}
         />
       )}
-      {phase >= 1 && (
+      {phase >= 1 && mode !== "origin" && (
         <Label
-          text="HIT → back to you in ~20 ms"
-          sub={["(not this time)"]}
-          size={0.55}
+          text={mode === "hit" ? "HIT → straight back to you" : "HIT → back to you in ~20 ms"}
+          sub={[mode === "hit" ? "this time" : "(not this time)"]}
+          size={mode === "hit" ? 0.8 : 0.55}
           position={[22, 3.5, -199]}
-          color={HEX.magenta}
-          opacity={0.75}
-          bg="rgba(6,8,20,0.75)"
-          border="rgba(232,121,249,0.5)"
+          color={mode === "hit" ? GREEN : HEX.magenta}
+          opacity={mode === "hit" ? 1 : 0.75}
+          bg="rgba(6,8,20,0.8)"
+          border={mode === "hit" ? GREEN : "rgba(232,121,249,0.5)"}
+          weight={mode === "hit" ? 700 : 600}
         />
       )}
-      {phase >= 3 && (
-        <Label text="MISS → origin  iad1 · Ashburn, VA" size={0.7} position={[0, 7.5, -282]} color="#eaffff" bg="rgba(6,8,20,0.85)" border={HEX.cyan} weight={700} />
+      {phase >= 3 && mode === "miss" && (
+        <Label text={copy.missLabel} size={0.7} position={[0, 7.5, -282]} color="#eaffff" bg="rgba(6,8,20,0.85)" border={HEX.cyan} weight={700} />
       )}
       <sprite position={[0, 6, FZ]} scale={[60, 40, 1]}>
         <spriteMaterial map={glowTexture()} color={hdr(COLORS.magenta, 0.25)} transparent depthWrite={false} blending={THREE.AdditiveBlending} toneMapped={false} />
@@ -182,17 +226,27 @@ const path = cameraPath([
   { t: 0.64, position: [30, 16, -232], target: [0, 5, -264], fov: 54 },
   { t: 1, position: [5, 13, -268], target: [0, 9, -430], fov: 55 },
 ]);
+/** HIT / no CDN: nothing leaves through the back gate, so watch the answer head back toward you instead. */
+const returnPath = cameraPath([
+  { t: 0, position: [-34, 18, -180], target: [4, 10, -236], fov: 50 },
+  { t: 0.45, position: [-30, 22, -190], target: [2, 10, -238], fov: 52 },
+  { t: 0.66, position: [-6, 18, -196], target: [12, 4, -214], fov: 52 },
+  { t: 1, position: [6, 20, -168], target: [22, 2, -196], fov: 54 },
+]);
 
 export const Stage4Edge: StageModule & { id: string } = {
   id: STAGES[INDEX].id,
   Scene,
   ...path,
+  camera: (t, out) => (modeOf(store().journey) === "miss" ? path : returnPath).camera(t, out),
   duration: STAGES[INDEX].duration,
   packet(t, out) {
+    const m = modeOf(store().journey);
     out.visible = true;
     if (t < BEAT.arrive) IN_PATH.getPoint(remap(t, 0, BEAT.arrive), out.position);
     else if (t < BEAT.through) out.position.copy(FRONT);
-    else if (t < BEAT.out) out.visible = false;
+    else if (m === "hit") HIT_PATH.getPoint(remap(t, BEAT.through, 1), out.position); // the answer turns around here
+    else if (m === "origin" || t < BEAT.out) out.visible = false; // inside the server / passing through
     else MISS_PATH.getPoint(remap(t, BEAT.out, 1), out.position);
   },
 };

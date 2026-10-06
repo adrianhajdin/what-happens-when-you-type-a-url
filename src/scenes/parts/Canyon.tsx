@@ -6,7 +6,7 @@ import { Towers, UNIT_BOX, rackSpecs, sharedTowerMaterial, type TowerSpec } from
 import { Label } from "@/core/Label";
 import { COLORS } from "@/core/materials";
 import { rng, type Vec3 } from "@/lib/math";
-import { TARGET_IP } from "@/lib/journey";
+import { useJourney } from "@/lib/store";
 import { CANYON } from "@/core/World";
 
 /** Shared set for the TCP and TLS stages: two plateaus of servers across a dark canyon. */
@@ -73,6 +73,7 @@ function Abyss() {
 }
 
 export function Canyon() {
+  const journey = useJourney();
   const wallMat = useMemo(() => sharedTowerMaterial("magenta", "cyan", 0.45), []);
   const depth = CANYON.zMax - CANYON.zMin;
   return (
@@ -84,7 +85,7 @@ export function Canyon() {
       <Abyss />
       <Towers specs={CANYON_TOWERS} />
       <Label text="CLIENT" sub={["192.168.1.24 : 52814"]} size={0.7} position={[CLIENT[0], TOWER_H + 6, CZ]} weight={700} />
-      <Label text="SERVER" sub={[`${TARGET_IP} : 443  ·  anycast`]} size={0.7} position={[SERVER[0], TOWER_H + 6, CZ]} weight={700} />
+      <Label text="SERVER" sub={[`${journey.ip} : 443${journey.provider ? "  ·  anycast" : ""}`]} size={0.7} position={[SERVER[0], TOWER_H + 6, CZ]} weight={700} />
     </group>
   );
 }

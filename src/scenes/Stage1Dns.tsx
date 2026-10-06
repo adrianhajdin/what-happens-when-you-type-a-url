@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { DynamicLabel, Label, type DynamicLabelHandle } from "@/core/Label";
@@ -9,17 +9,17 @@ import { FlowLine } from "@/core/FlowLine";
 import { COLORS, HEX } from "@/core/materials";
 import { cameraPath, type StageModule } from "@/core/types";
 import { STAGES, stageT } from "@/lib/stages";
-import { TARGET_HOST, TARGET_IP, TARGET_NS } from "@/lib/journey";
+import type { Journey } from "@/lib/live";
 import { Chain, arc, remap, type Vec3 } from "@/lib/math";
-import { store } from "@/lib/store";
+import { store, useJourney } from "@/lib/store";
 
 const INDEX = 1;
 
 const TOWERS = {
   resolver: { pos: [-14, 0, -48] as Vec3, h: 10, w: 4, name: "RECURSIVE RESOLVER", sub: "your ISP · 1.1.1.1 style" },
   root: { pos: [-2, 0, -72] as Vec3, h: 34, w: 8, name: "ROOT  ( . )", sub: "a–m.root-servers.net" },
-  tld: { pos: [12, 0, -64] as Vec3, h: 20, w: 6, name: ".COM TLD", sub: "a.gtld-servers.net" },
-  auth: { pos: [22, 0, -50] as Vec3, h: 15, w: 5, name: "AUTHORITATIVE", sub: TARGET_NS },
+  tld: { pos: [12, 0, -64] as Vec3, h: 20, w: 6, name: ".{TLD} TLD", sub: "{tldNs}" },
+  auth: { pos: [22, 0, -50] as Vec3, h: 15, w: 5, name: "AUTHORITATIVE", sub: "{ns}" },
 };
 type TowerId = keyof typeof TOWERS;
 
@@ -35,23 +35,38 @@ const top = (id: TowerId) => {
 const CLIENT_START = new THREE.Vector3(-2, 0.8, -24);
 const CLIENT_END = new THREE.Vector3(1, 1.2, -30);
 
-const LEGS: { from: THREE.Vector3; to: THREE.Vector3; h: number; text: string; answer: boolean }[] = [
-  { from: CLIENT_START, to: top("resolver"), h: 5, text: `A? ${TARGET_HOST}`, answer: false },
-  { from: top("resolver"), to: top("root"), h: 8, text: `A? ${TARGET_HOST}`, answer: false },
-  { from: top("root"), to: top("resolver"), h: 8, text: "→ ask .com: a.gtld-servers.net", answer: true },
-  { from: top("resolver"), to: top("tld"), h: 9, text: `A? ${TARGET_HOST}`, answer: false },
-  { from: top("tld"), to: top("resolver"), h: 9, text: `→ ask ${TARGET_NS}`, answer: true },
-  { from: top("resolver"), to: top("auth"), h: 10, text: `A? ${TARGET_HOST}`, answer: false },
-  { from: top("auth"), to: top("resolver"), h: 10, text: `A ${TARGET_IP}  TTL 60`, answer: true },
-  { from: top("resolver"), to: CLIENT_END, h: 5, text: `${TARGET_IP}`, answer: true },
+const LEGS: { from: THREE.Vector3; to: THREE.Vector3; h: number; answer: boolean }[] = [
+  { from: CLIENT_START, to: top("resolver"), h: 5, answer: false },
+  { from: top("resolver"), to: top("root"), h: 8, answer: false },
+  { from: top("root"), to: top("resolver"), h: 8, answer: true },
+  { from: top("resolver"), to: top("tld"), h: 9, answer: false },
+  { from: top("tld"), to: top("resolver"), h: 9, answer: true },
+  { from: top("resolver"), to: top("auth"), h: 10, answer: false },
+  { from: top("auth"), to: top("resolver"), h: 10, answer: true },
+  { from: top("resolver"), to: CLIENT_END, h: 5, answer: true },
 ];
+/** What travels on each leg, from the real records when tracing a typed URL. */
+const legTexts = (j: Journey) => [
+  `A? ${j.host}`,
+  `A? ${j.host}`,
+  `→ ask .${j.tld}: ${j.tldNs}`,
+  `A? ${j.host}`,
+  `→ ask ${j.authNs}`,
+  `A? ${j.host}`,
+  `A ${j.ip}  TTL ${j.ttl}`,
+  j.ip,
+];
+const towerText = (s: string, j: Journey) => s.replace("{TLD}", j.tld.toUpperCase()).replace("{tldNs}", j.tldNs).replace("{ns}", j.authNs);
 const ROUTE = new Chain(LEGS.map((l) => arc(l.from, l.to, l.h)));
 const HOP_START = 0.04;
 const HOP_END = 0.9;
 
 /** What the resolver has cached after each leg (caching is the point of a resolver). */
-const NS_ROW = `${TARGET_HOST}  NS  ✓`;
-const CACHE_AFTER = [[], [], [".com  NS  ✓"], [".com  NS  ✓"], [".com  NS  ✓", NS_ROW], [".com  NS  ✓", NS_ROW], [".com  NS  ✓", NS_ROW, `${TARGET_HOST}  A  ✓`]];
+function cacheAfter(j: Journey) {
+  const tld = `.${j.tld}  NS  ✓`;
+  const ns = `${j.host}  NS  ✓`;
+  return [[], [], [tld], [tld], [tld, ns], [tld, ns], [tld, ns, `${j.host}  A  ✓`]];
+}
 
 function Scene() {
   const label = useRef<DynamicLabelHandle>(null);
@@ -60,6 +75,14 @@ function Scene() {
   const [leg, setLeg] = useState(-1);
   const legRef = useRef(-1);
   const ttlRef = useRef(-1);
+  const journey = useJourney();
+  const texts = useMemo(() => legTexts(journey), [journey]);
+  const textsRef = useRef(texts);
+  textsRef.current = texts;
+  const CACHE_AFTER = useMemo(() => cacheAfter(journey), [journey]);
+  useEffect(() => {
+    ttlRef.current = -1; // redraw the TTL chip for the new answer
+  }, [journey]);
 
   const groundLines = useMemo(() => {
     const g = (a: Vec3, b: Vec3) => new THREE.LineCurve3(new THREE.Vector3(a[0], 0.06, a[2]), new THREE.Vector3(b[0], 0.06, b[2]));
@@ -87,7 +110,7 @@ function Scene() {
       if (inHops) {
         ROUTE.getPoint(u, tmp);
         s.position.set(tmp.x, tmp.y + 1.7, tmp.z);
-        label.current!.setText(LEGS[ROUTE.segment(u)].text);
+        label.current!.setText(textsRef.current[ROUTE.segment(u)]);
       }
     }
     const ts = ttl.current?.sprite;
@@ -96,10 +119,11 @@ function Scene() {
       ts.visible = show;
       if (show) {
         // TTL starts ticking once the resolver has the answer
-        const secs = Math.max(0, 60 - Math.floor(remap(t, 0.8, 1) * 6));
+        const j = store().journey;
+        const secs = Math.max(0, j.ttl - Math.floor(remap(t, 0.8, 1) * 6));
         if (secs !== ttlRef.current) {
           ttlRef.current = secs;
-          ttl.current!.setText(`${TARGET_IP} · TTL ${secs}s`);
+          ttl.current!.setText(`${j.ip} · TTL ${secs}s`);
         }
         if (t < HOP_END) {
           ROUTE.getPoint(u, tmp);
@@ -119,8 +143,8 @@ function Scene() {
         return (
           <group key={id}>
             <Label
-              text={tw.name}
-              sub={[tw.sub]}
+              text={towerText(tw.name, journey)}
+              sub={[towerText(tw.sub, journey)]}
               size={id === "root" ? 0.9 : 0.62}
               position={[tw.pos[0], tw.h + (id === "root" ? 4.2 : 3.2), tw.pos[2]]}
               color={active ? "#ffffff" : "#bfefff"}

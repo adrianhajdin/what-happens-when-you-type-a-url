@@ -11,9 +11,9 @@ import { COLORS, HEX, TIME, glowTexture, hdr } from "@/core/materials";
 import { disposeObject } from "@/core/Stage";
 import { cameraPath, type StageModule } from "@/core/types";
 import { STAGES, stageT } from "@/lib/stages";
-import { TARGET_HOST } from "@/lib/journey";
+import { isTls13, tlsLabel, type Journey } from "@/lib/live";
 import { easeInOut, easeOut, remap, rng } from "@/lib/math";
-import { store } from "@/lib/store";
+import { store, useJourney } from "@/lib/store";
 
 const INDEX = 3;
 export const PADLOCK_URL = "/models/padlock.min.glb";
@@ -37,8 +37,26 @@ const CHANNEL = BRIDGES[1];
 const LOCK_POS = new THREE.Vector3(0, 11.5, CZ);
 const DOCK_L = new THREE.Vector3(CLIENT[0] + 2.6, 3, CZ);
 
-const CIPHERS = ["TLS_AES_128_GCM_SHA256", "TLS_AES_256_GCM_SHA384", "TLS_CHACHA20_POLY1305_SHA256", "key_share: x25519"];
-const CHAIN = [`leaf · ${TARGET_HOST}`, "intermediate CA", "root CA · in your trust store"];
+const TLS13_OFFER = ["TLS_AES_128_GCM_SHA256", "TLS_AES_256_GCM_SHA384", "TLS_CHACHA20_POLY1305_SHA256", "key_share: x25519"];
+/** What the browser offers in its ClientHello (the server's pick is shown in the ServerHello). */
+const offerFor = (j: Journey) =>
+  isTls13(j) || TLS13_OFFER.includes(j.cipher) ? TLS13_OFFER : [j.cipher, "TLS_AES_128_GCM_SHA256", "TLS_CHACHA20_POLY1305_SHA256", "supported_versions: 1.3, 1.2"];
+const chainFor = (j: Journey) =>
+  j.kind === "example"
+    ? [`leaf · ${j.host}`, "intermediate CA", "root CA · in your trust store"]
+    : [`leaf · ${j.chain[0]}`, `intermediate · ${j.chain[1] ?? "—"}`, `root · ${j.chain.length > 2 ? j.chain[j.chain.length - 1] : "in your trust store"}`];
+/** "TLS_AES_128_GCM_SHA256" → "AES-128-GCM", "ECDHE-RSA-CHACHA20-POLY1305" → "ChaCha20-Poly1305" */
+function bulkCipher(c: string) {
+  if (/CHACHA20/i.test(c)) return "ChaCha20-Poly1305";
+  const m = c.match(/AES[_-]?(\d+)[_-]GCM/i);
+  return m ? `AES-${m[1]}-GCM` : c;
+}
+const captionsFor = (j: Journey) => ({
+  hello: "ClientHello  ·  ciphers + key share",
+  server: `ServerHello  ·  ${j.cipher}  ·  certificate`,
+  secret: isTls13(j) ? "shared secret  ·  x25519 ECDHE" : "shared secret  ·  ECDHE key exchange",
+  done: `${tlsLabel(j)}  ·  ${isTls13(j) ? "1 round trip" : "2 round trips"}  ·  ${bulkCipher(j.cipher)}`,
+});
 
 /* --------------------------- encrypted tube shader -------------------------- */
 
@@ -248,6 +266,11 @@ function Converge({ matRef }: { matRef: React.RefObject<THREE.ShaderMaterial | n
 /* --------------------------------- scene --------------------------------- */
 
 function Scene() {
+  const journey = useJourney();
+  const offer = useMemo(() => offerFor(journey), [journey]);
+  const chainText = useMemo(() => chainFor(journey), [journey]);
+  const captions = useRef(captionsFor(journey));
+  captions.current = captionsFor(journey);
   const tmp = useMemo(() => new THREE.Vector3(), []);
   const server = useRef<PacketHandle>(null);
   const ciphers = useRef<(THREE.Sprite | null)[]>([]);
@@ -272,7 +295,7 @@ function Scene() {
       const s = ciphers.current[i];
       if (!s) continue;
       s.visible = t > BEAT.helloFrom && t < BEAT.helloTo + 0.02;
-      const a = (i / (CIPHERS.length - 1) - 0.5) * 2.2;
+      const a = (i / (ciphers.current.length - 1) - 0.5) * 2.2;
       s.position.set(tmp.x + Math.sin(a) * 8 * fan, tmp.y + 2.5 + Math.cos(a) * 4.5 * fan, tmp.z + 2);
       (s.material as THREE.SpriteMaterial).opacity = fan;
     }
@@ -331,11 +354,12 @@ function Scene() {
 
     const cap = caption.current;
     if (cap?.sprite) {
+      const c = captions.current;
       let text = "";
-      if (t > BEAT.helloFrom && t < BEAT.helloTo) text = "ClientHello  ·  ciphers + key share";
-      else if (t > BEAT.serverFrom && t < BEAT.verify + 0.05) text = "ServerHello  ·  certificate  ·  Finished";
-      else if (t > BEAT.keysFrom && t < BEAT.tubeFrom) text = "shared secret  ·  x25519 ECDHE";
-      else if (t >= BEAT.tubeFrom) text = "TLS 1.3  ·  1 round trip  ·  AES-128-GCM";
+      if (t > BEAT.helloFrom && t < BEAT.helloTo) text = c.hello;
+      else if (t > BEAT.serverFrom && t < BEAT.verify + 0.05) text = c.server;
+      else if (t > BEAT.keysFrom && t < BEAT.tubeFrom) text = c.secret;
+      else if (t >= BEAT.tubeFrom) text = c.done;
       cap.sprite.visible = text !== "";
       if (text) cap.setText(text);
     }
@@ -345,9 +369,9 @@ function Scene() {
     <group>
       <EncryptedTube matRef={tube} />
       <Packet ref={server} color={COLORS.magenta} size={0.5} visible={false} />
-      {CIPHERS.map((c, i) => (
+      {offer.map((c, i) => (
         <Label
-          key={c}
+          key={i}
           ref={(s) => {
             ciphers.current[i] = s;
           }}
@@ -359,8 +383,8 @@ function Scene() {
           visible={false}
         />
       ))}
-      {CHAIN.map((c, i) => (
-        <group key={c}>
+      {chainText.map((c, i) => (
+        <group key={i}>
           <Label
             ref={(s) => {
               chain.current[i] = s;

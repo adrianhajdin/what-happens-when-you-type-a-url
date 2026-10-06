@@ -15,9 +15,9 @@ import { COLORS, HEX, glassMaterial, hdr } from "@/core/materials";
 import { UNIT_BOX } from "@/core/Tower";
 import { cameraPath, type StageModule } from "@/core/types";
 import { STAGES, stageT } from "@/lib/stages";
-import { TARGET_HOST } from "@/lib/journey";
+import { crossesOcean, goesToOrigin, totalLabel, type Journey } from "@/lib/live";
 import { easeOut, remap, rng, type Vec3 } from "@/lib/math";
-import { store } from "@/lib/store";
+import { store, useJourney } from "@/lib/store";
 
 const INDEX = 6;
 const TZ = -12;
@@ -297,7 +297,18 @@ function Page() {
 
 /* --------------------------------- scene --------------------------------- */
 
+/** One-line recap of what this request went through. */
+function breakdown(j: Journey) {
+  if (j.kind === "example") return "cache → DNS → TCP → TLS → edge MISS → Atlantic ×2 → render";
+  const steps = ["cache", "DNS", "TCP", j.protocol.replace("TLSv", "TLS ")];
+  if (j.provider) steps.push(`edge ${j.cache === "UNKNOWN" ? "" : j.cache}`.trim());
+  if (goesToOrigin(j)) steps.push(crossesOcean(j) ? "ocean ×2" : "origin");
+  steps.push("render");
+  return steps.join(" → ");
+}
+
 function Scene() {
+  const journey = useJourney();
   const bar = useRef<BrowserHandle>(null);
   const ribbons = useRef<(THREE.Mesh | null)[]>([]);
   const tokens = useRef<(THREE.Sprite | null)[]>([]);
@@ -327,7 +338,7 @@ function Scene() {
 
   useFrame(() => {
     const t = stageT(INDEX, store().progress);
-    bar.current?.setUrl(TARGET_HOST, false);
+    bar.current?.setUrl(store().journey.host, false);
     bar.current?.setGlow(t > FINALE ? 0.6 : 0);
     ribbons.current.forEach((m, i) => setReveal(m, remap(t, i * 0.012, 0.16 + i * 0.012)));
     for (let i = 0; i < tokens.current.length; i++) {
@@ -440,9 +451,9 @@ function Scene() {
       ))}
       <Label ref={renderTree} text="render tree = DOM + CSSOM" sub={["→ layout → paint → composite"]} size={0.8} position={[2, 25, TZ]} color="#ffffff" bg="rgba(8,6,20,0.85)" border={HEX.magenta} weight={700} visible={false} />
       <group ref={finale} position={[0, BAR_POS[1] + 2.4, 0.4]} visible={false}>
-        <Label text="1.2 s. That's what just happened." size={0.95} color="#ffffff" weight={800} />
+        <Label text={`${totalLabel(journey)}. That's what just happened.`} size={0.95} color="#ffffff" weight={800} />
         <Label
-          text="cache → DNS → TCP → TLS → edge MISS → Atlantic ×2 → render"
+          text={breakdown(journey)}
           size={0.36}
           position={[0, -0.95, 0]}
           color="rgba(190,225,255,0.85)"

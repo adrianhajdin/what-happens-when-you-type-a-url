@@ -37,7 +37,7 @@ function roundedRect(w: number, h: number, r: number, z: number) {
 }
 
 /** Floating 3D address bar. Text is a canvas texture redrawn only when it changes. */
-export const BrowserBar = forwardRef<BrowserHandle, { position?: Vec3 }>(function BrowserBar({ position = BAR_POS }, ref) {
+export const BrowserBar = forwardRef<BrowserHandle, { position?: Vec3; onActivate?: () => void }>(function BrowserBar({ position = BAR_POS, onActivate }, ref) {
   const outline = useMemo(() => roundedRect(BAR_W, BAR_H, 0.55, 0.17), []);
   const glowMat = useRef<THREE.MeshBasicMaterial>(null);
   const text = useMemo(() => {
@@ -87,7 +87,18 @@ export const BrowserBar = forwardRef<BrowserHandle, { position?: Vec3 }>(functio
   }));
 
   return (
-    <group position={position}>
+    <group
+      position={position}
+      onClick={
+        onActivate &&
+        ((e) => {
+          e.stopPropagation();
+          onActivate();
+        })
+      }
+      onPointerOver={onActivate && (() => (document.body.style.cursor = "text"))}
+      onPointerOut={onActivate && (() => (document.body.style.cursor = ""))}
+    >
       <RoundedBox args={[BAR_W, BAR_H, 0.3]} radius={0.14} smoothness={3}>
         <meshBasicMaterial color="#070b1c" transparent opacity={0.92} />
       </RoundedBox>

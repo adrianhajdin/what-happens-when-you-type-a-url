@@ -9,9 +9,9 @@ import { COLORS, HEX, glassMaterial, glowTexture, hdr } from "@/core/materials";
 import { UNIT_BOX } from "@/core/Tower";
 import { cameraPath, type StageModule } from "@/core/types";
 import { STAGES, stageT } from "@/lib/stages";
-import { TARGET_HOST } from "@/lib/journey";
 import { easeOut, remap } from "@/lib/math";
-import { store } from "@/lib/store";
+import { store, useJourney, useStore } from "@/lib/store";
+import { focusAddressBar } from "@/lib/address-bar";
 
 const INDEX = 0;
 
@@ -38,13 +38,13 @@ const DROP = new THREE.CubicBezierCurve3(
 type Status = "idle" | "scan" | "miss";
 
 const PLACEHOLDER = "Search or type a URL";
-/** Every prefix of the host, precomputed so typing allocates nothing per frame. */
-const TYPED = Array.from({ length: TARGET_HOST.length + 1 }, (_, i) => TARGET_HOST.slice(0, i));
+const EDIT_PLACEHOLDER = "type any site, e.g. github.com";
 
 const BLOCKS = [
-  { id: "browser", title: "BROWSER CACHE", x: -4.6, scan: BEAT.browserScan, miss: BEAT.browserMiss, rows: ["github.com        A  ✓", "fonts.gstatic.com A  ✓", `${TARGET_HOST.padEnd(17)} ?  —`] },
-  { id: "os", title: "OS RESOLVER CACHE", x: 4.6, scan: BEAT.osScan, miss: BEAT.osMiss, rows: ["/etc/hosts        ✓", "api.github.com A  ✓", `${TARGET_HOST.padEnd(17)} ?  —`] },
+  { id: "browser", title: "BROWSER CACHE", x: -4.6, scan: BEAT.browserScan, miss: BEAT.browserMiss, rows: ["github.com        A  ✓", "fonts.gstatic.com A  ✓"] },
+  { id: "os", title: "OS RESOLVER CACHE", x: 4.6, scan: BEAT.osScan, miss: BEAT.osMiss, rows: ["/etc/hosts        ✓", "api.github.com A  ✓"] },
 ];
+const missRow = (host: string) => `${(host.length > 17 ? host.slice(0, 16) + "…" : host).padEnd(17)} ?  —`;
 
 const statusOf = (b: (typeof BLOCKS)[number], t: number): Status => (t >= b.miss ? "miss" : t >= b.scan ? "scan" : "idle");
 
@@ -89,13 +89,26 @@ function Scene() {
   const [status, setStatus] = useState<[Status, Status]>(["idle", "idle"]);
   const statusKey = useRef<[Status, Status]>(["idle", "idle"]);
   const pool = useRef<THREE.Mesh>(null);
+  const journey = useJourney();
+  const trace = useStore((s) => s.trace);
+  const host = journey.host;
+  /** Every prefix of the host, precomputed so typing allocates nothing per frame. */
+  const typed = useMemo(() => Array.from({ length: host.length + 1 }, (_, i) => host.slice(0, i)), [host]);
 
   useFrame(() => {
-    const t = stageT(INDEX, store().progress);
-    const n = Math.round(remap(t, BEAT.typeStart, BEAT.typeEnd) * TARGET_HOST.length);
+    const st = store();
+    const t = stageT(INDEX, st.progress);
     const blink = Math.floor(performance.now() / 530) % 2 === 0;
-    if (n === 0) bar.current?.setUrl(PLACEHOLDER, blink, true);
-    else bar.current?.setUrl(TYPED[n], t < BEAT.enter && blink);
+    // the bar is a real input while you're at the top of the page
+    if (t < BEAT.typeStart && st.draft !== null) {
+      bar.current?.setUrl(st.draft ? st.draft.replace(/^https?:\/\//, "") : EDIT_PLACEHOLDER, blink, !st.draft);
+    } else if (t < BEAT.typeStart && st.trace.status === "loading" && st.trace.host) {
+      bar.current?.setUrl(st.trace.host, false);
+    } else {
+      const n = Math.round(remap(t, BEAT.typeStart, BEAT.typeEnd) * host.length);
+      if (n === 0) bar.current?.setUrl(PLACEHOLDER, blink, true);
+      else bar.current?.setUrl(typed[n], t < BEAT.enter && blink);
+    }
     // enter pulse
     const pulse = t > BEAT.enter ? Math.max(0, 1 - (t - BEAT.enter) * 12) : 0;
     bar.current?.setGlow(pulse + (t > BEAT.birth ? remap(t, BEAT.birth, BEAT.drop) : 0));
@@ -111,10 +124,25 @@ function Scene() {
 
   return (
     <group>
-      <BrowserBar ref={bar} />
+      <BrowserBar ref={bar} onActivate={store().video ? undefined : focusAddressBar} />
       {BLOCKS.map((b, i) => (
-        <MemoryBlock key={b.id} title={b.title} x={b.x} rows={b.rows} status={status[i]} />
+        <MemoryBlock key={b.id} title={b.title} x={b.x} rows={[...b.rows, missRow(host)]} status={status[i]} />
       ))}
+      {trace.status === "loading" && (
+        <Label text={`tracing ${trace.host}…`} sub={["DNS · TLS · CDN edge"]} size={0.45} position={[0, BAR_POS[1] - 1.7, 0.5]} color={HEX.cyan} bg="rgba(6,8,20,0.85)" border={HEX.cyan} weight={700} />
+      )}
+      {trace.status === "error" && (
+        <Label
+          text={(trace.message ?? "Couldn't trace that site").slice(0, 60)}
+          sub={["try another site, or scroll for the example"]}
+          size={0.42}
+          position={[0, BAR_POS[1] - 1.7, 0.5]}
+          color={HEX.red}
+          bg="rgba(20,6,10,0.88)"
+          border={HEX.red}
+          weight={700}
+        />
+      )}
       {/* the bar casts a cyan pool of light onto the network plane */}
       <mesh ref={pool} rotation-x={-Math.PI / 2} position={[BAR_POS[0], 0.02, BAR_POS[2] - 1]}>
         <planeGeometry args={[26, 14]} />

@@ -3,7 +3,9 @@
 import { useEffect, useRef } from "react";
 import { HOTSPOTS, STAGES, elapsedAt, locate, type Loc } from "@/lib/stages";
 import { useStore } from "@/lib/store";
-import { TARGET_HOST } from "@/lib/journey";
+import { captionFor, copyFor, fill as fillCopy } from "@/lib/live";
+import { traceUrl, resetJourney } from "@/lib/trace-client";
+import { focusAddressBar } from "@/lib/address-bar";
 import { jumpToStage } from "./ScrollDriver";
 
 export function Hud() {
@@ -18,8 +20,32 @@ export function Hud() {
   const hint = useRef<HTMLDivElement>(null);
   const stageText = useRef<HTMLDivElement>(null);
   const caption = useRef<HTMLDivElement>(null);
+  const journey = useStore((s) => s.journey);
+  const draft = useStore((s) => s.draft);
+  const trace = useStore((s) => s.trace);
+  const input = useRef<HTMLInputElement>(null);
   const meta = STAGES[stage];
+  const live = journey.kind === "live";
+  const copy = copyFor(stage, journey);
+  const title = copy.title ?? meta.title;
+  const concept = fillCopy(copy.concept ?? meta.concept, journey);
+  const caption_ = captionFor(journey);
   const card = HOTSPOTS.find((h) => h.id === hotspot);
+
+  // At the top of the page, just start typing: any printable key opens the address bar.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const s = useStore.getState();
+      if (s.video || s.draft !== null || s.progress > 0.02 || e.metaKey || e.ctrlKey || e.altKey) return;
+      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (e.key.length === 1 && /\S/.test(e.key)) {
+        e.preventDefault();
+        focusAddressBar(e.key);
+      }
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, []);
 
   // Transient updates: written straight to the DOM at scroll rate, no React re-render.
   useEffect(() => {
@@ -28,12 +54,16 @@ export function Hud() {
       locate(s.progress, loc);
       if (ms.current) ms.current.textContent = Math.round(elapsedAt(loc)).toLocaleString("en");
       if (fill.current) fill.current.style.transform = `scaleY(${s.progress})`;
-      if (hint.current) hint.current.style.opacity = s.progress < 0.01 ? "1" : "0";
+      if (hint.current) {
+        const top = s.progress < 0.01;
+        hint.current.style.opacity = top ? "1" : "0";
+        hint.current.style.visibility = top ? "visible" : "hidden";
+      }
       // Stage copy dips out and back in around the midpoint of each fly-over.
       // Driven by progress, not CSS time, so it is exact when scrubbing and in recorded video.
       // caption: eases in once the stage starts, out before it ends (progress-driven, like the stage copy)
       if (caption.current) {
-        const on = !loc.transitioning && STAGES[loc.index].caption ? Math.min(1, (loc.t - 0.04) / 0.06, (0.97 - loc.t) / 0.05) : 0;
+        const on = !loc.transitioning && STAGES[loc.index].id === "ocean" ? Math.min(1, (loc.t - 0.04) / 0.06, (0.97 - loc.t) / 0.05) : 0;
         const k = Math.max(0, Math.min(1, on));
         caption.current.style.opacity = String(k);
         caption.current.style.transform = `translate(-50%, ${(1 - k) * 10}px)`;
@@ -54,8 +84,8 @@ export function Hud() {
             <span className="hud-of">/ {String(STAGES.length).padStart(2, "0")}</span>
             <span className="hud-short">{meta.short}</span>
           </div>
-          <h2 className="hud-title">{meta.title}</h2>
-          <p className="hud-concept">{meta.concept}</p>
+          <h2 className="hud-title">{title}</h2>
+          <p className="hud-concept">{concept}</p>
         </div>
         <div className="hud-clock" aria-label="elapsed time">
           <div className="hud-clock-label">elapsed</div>
@@ -64,7 +94,19 @@ export function Hud() {
             <small>ms</small>
           </div>
           <div className="hud-clock-sub">
-            {origin.city} → {TARGET_HOST}
+            {live ? journey.visitor.city : origin.city} → {journey.host}
+          </div>
+          <div className={`hud-badge ${live ? "live" : ""}`}>
+            {live ? (
+              <>
+                live trace{" "}
+                <button onClick={() => resetJourney()} title="back to the example run">
+                  ×
+                </button>
+              </>
+            ) : (
+              "example run"
+            )}
           </div>
         </div>
       </header>
@@ -82,18 +124,50 @@ export function Hud() {
       </nav>
 
       <div className="hud-caption" ref={caption} style={{ opacity: 0 }}>
-        {meta.caption && (
+        {meta.id === "ocean" && (
           <>
-            <strong>{meta.caption.title}</strong>
-            <span>{meta.caption.body}</span>
+            <strong>{caption_.title}</strong>
+            <span>{caption_.body}</span>
           </>
         )}
       </div>
 
       <div className="hud-hint" ref={hint}>
-        <span>scroll to send the request</span>
+        <button className="hud-try" onClick={() => focusAddressBar()} disabled={trace.status === "loading"}>
+          {trace.status === "loading" ? `tracing ${trace.host}…` : live ? "trace another site" : "type any URL"}
+        </button>
+        <span>{live ? `or scroll to follow your request to ${journey.host}` : "or scroll to follow an example run"}</span>
         <i />
       </div>
+
+      {/* The real input behind the 3D address bar (visually hidden, keeps mobile keyboards and IME working). */}
+      <input
+        ref={input}
+        id="url-input"
+        className="url-input"
+        type="url"
+        inputMode="url"
+        autoCapitalize="off"
+        autoCorrect="off"
+        autoComplete="off"
+        spellCheck={false}
+        enterKeyHint="go"
+        aria-label="Type a website to trace"
+        value={draft ?? ""}
+        onChange={(e) => set({ draft: e.target.value, lastActivity: performance.now() })}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && draft) {
+            e.currentTarget.blur();
+            traceUrl(draft);
+          } else if (e.key === "Escape") {
+            set({ draft: null });
+            e.currentTarget.blur();
+          }
+        }}
+        onBlur={() => {
+          if (useStore.getState().trace.status !== "loading") set({ draft: null });
+        }}
+      />
 
       {meta.id === "ocean" && <div className="hud-orbit">drag to orbit</div>}
       {meta.hotspots.length > 0 && !card && <div className="hud-hotspot-tip">tap the glowing rings for details</div>}
@@ -104,8 +178,16 @@ export function Hud() {
             ×
           </button>
           <div className="hud-card-kicker">{STAGES[card.stage].short}</div>
-          <h3>{card.title}</h3>
-          <p>{card.body}</p>
+          <h3>{fillCopy(card.title, journey)}</h3>
+          <p>{fillCopy(card.body, journey)}</p>
+          {live && card.stage === 4 && journey.evidence.length > 0 && (
+            <div className="hud-evidence">
+              <div className="hud-card-kicker">response headers</div>
+              {journey.evidence.map((e) => (
+                <code key={e}>{e}</code>
+              ))}
+            </div>
+          )}
         </aside>
       )}
 

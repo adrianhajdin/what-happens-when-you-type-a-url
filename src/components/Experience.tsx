@@ -23,6 +23,7 @@ import { ScrollDriver } from "./ScrollDriver";
 import { Hud } from "./Hud";
 import { Loader } from "./Loader";
 import { useGeoOrigin } from "./useGeoOrigin";
+import { traceUrl } from "@/lib/trace-client";
 
 function detectTier(): Tier {
   const q = new URLSearchParams(location.search).get("tier");
@@ -101,6 +102,14 @@ export default function Experience() {
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
   }, []);
+
+  // shared links: ?url=github.com traces that site as soon as the scene is up
+  const ready = useStore((s) => s.ready);
+  useEffect(() => {
+    if (!ready || video) return;
+    const u = new URLSearchParams(location.search).get("url");
+    if (u) traceUrl(u);
+  }, [ready, video]);
 
   const ocean = SCENES.findIndex((s) => s.id === "ocean");
   const onDown = (e: React.PointerEvent) => {
