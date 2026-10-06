@@ -53,10 +53,11 @@ Open http://localhost:3000 and scroll.
 
 ```bash
 npm run build && npm start
-npm run record
+npm run record                                              # full cut, 16:9
+npm run record -- --cut short --width 1080 --height 1350    # ~40 s cut, 4:5
 ```
 
-This writes `video/journey-1080p60.mp4` (~72 s, H.264, X/Twitter-ready). Pacing per stage lives at the top of `scripts/record-video.mjs`; `--width 1080 --height 1350` gives a 4:5 cut, `--from/--to` renders part of it.
+Writes `video/journey-<cut>-<w>x<h>.mp4` (H.264 1080p60 + AAC, X/Twitter-ready). Each video opens cold on the globe shot under a hook line, hard-cuts to typing, and carries an original soundtrack synthesised in `scripts/soundtrack.mjs` (pad, pulse, whooshes and event-synced blips; no samples, nothing to license). Pacing presets live at the top of `scripts/record-video.mjs`. `--audio-only` re-synthesises the soundtrack onto an existing file without re-rendering, and `--from/--to` renders part of the timeline silently for checks.
 
 ## How it's built
 

@@ -12,6 +12,9 @@ import { GLOBE_CENTER } from "@/scenes/globe/geo";
 
 const OCEAN = SCENES.findIndex((s) => s.id === "ocean");
 
+/** Set `snap` to jump straight to the target pose next frame (hard cuts in recorded video). */
+export const rigControl = { snap: false };
+
 const tmpIn = new THREE.Vector3();
 const tmpOut = new THREE.Vector3();
 
@@ -95,6 +98,10 @@ export function CameraRig() {
       o.pitch = 0;
     }
 
+    if (rigControl.snap) {
+      rigControl.snap = false;
+      s.init = false;
+    }
     if (!s.init) {
       s.pos.copy(s.a.position);
       s.tgt.copy(s.a.target);

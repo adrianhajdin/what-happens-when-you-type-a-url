@@ -500,3 +500,36 @@ button {
 .is-video .hud-concept {
   max-width: 34ch;
 }
+
+/* cold-open title card in recorded video */
+#video-hook {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6em;
+  padding: 0 8vw;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(6, 6, 15, 0.55) 0%, rgba(6, 6, 15, 0) 70%);
+}
+#video-hook h1 {
+  font-size: clamp(40px, 6.2vw, 96px);
+  line-height: 1.02;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  text-shadow: 0 0 40px rgba(34, 211, 238, 0.45), 0 2px 24px rgba(0, 0, 0, 0.8);
+}
+#video-hook p {
+  font-family: var(--font-mono), monospace;
+  font-size: clamp(18px, 2.2vw, 32px);
+  color: var(--magenta);
+  text-shadow: 0 0 18px rgba(232, 121, 249, 0.6);
+}
+.is-coldopen .hud {
+  opacity: 0 !important;
+}
