@@ -10,7 +10,11 @@ const description =
   "Follow one request from your address bar through DNS, TCP, TLS, a CDN edge and a submarine cable under the Atlantic, then back to a rendered page. In 3D, in 1.2 seconds.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+  // share cards need absolute URLs: explicit override, else Vercel's production domain, else local dev
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ??
+      (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000"),
+  ),
   title,
   description,
   openGraph: { title, description, images: [{ url: "/og.jpg", width: 1200, height: 630, alt: "A packet crossing the Atlantic on the Dunant cable" }], type: "website" },
